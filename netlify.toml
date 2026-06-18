@@ -10,6 +10,13 @@
   publish = "."
   functions = "netlify/functions"
 
+[build.environment]
+  # Secrets scanning false positives: these keys are NON-secret station metadata
+  # (name, coordinates, public station IDs) that legitimately appear as default
+  # fallbacks in lib/config.mjs. The real secrets (Ecowitt/Windy keys, WU/WG
+  # passwords) are NOT in the repo and remain scanned.
+  SECRETS_SCAN_OMIT_KEYS = "WU_ID,WG_UID,STATION_NAME,STATION_LAT,STATION_LON,STATION_ELEVATION,STATION_TEMP_HEIGHT,STATION_WIND_HEIGHT"
+
 [functions]
   # Bundle the functions (and the shared files they import from /lib) with esbuild.
   node_bundler = "esbuild"
@@ -21,4 +28,4 @@
   status = 200
 
 # The schedule itself is declared inline in netlify/functions/poll.mjs
-# via `export const config = { schedule: "* * * * *" }`.
+# via `export const config = { schedule: "*/5 * * * *" }`.
