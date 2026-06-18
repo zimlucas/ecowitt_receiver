@@ -1,0 +1,24 @@
+# Netlify configuration
+# ---------------------------------------------------------------------------
+# The site is a single static dashboard (index.html) plus serverless functions.
+# - poll:   scheduled function that fetches the station and posts every 5 min.
+# - status: HTTP function the dashboard polls to render the monitors.
+# ---------------------------------------------------------------------------
+
+[build]
+  # Serve the repository root as the static site (index.html).
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  # Bundle the functions (and the shared files they import from /lib) with esbuild.
+  node_bundler = "esbuild"
+
+# Pretty URL for the dashboard -> status function.
+[[redirects]]
+  from = "/api/status"
+  to = "/.netlify/functions/status"
+  status = 200
+
+# The schedule itself is declared inline in netlify/functions/poll.mjs
+# via `export const config = { schedule: "* * * * *" }`.

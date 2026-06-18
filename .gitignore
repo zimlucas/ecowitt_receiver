@@ -7,6 +7,10 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
+
+# Local monitoring script
+local_monitor.py
 
 # OS / editor
 .DS_Store

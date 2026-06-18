@@ -107,3 +107,6 @@ if __name__ == "__main__":
     # Gunicorn is used on Railway (Linux). On Windows, run the built-in dev server.
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port)
+
+
+# it worked! Now make railway automatically access weather data and print it... unit conversion

@@ -1,0 +1,13 @@
+{
+  "name": "ecowitt-netlify-station",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Posts an Ecowitt weather station to Windy, Weather Underground and Windguru on a schedule, with a status dashboard. Runs on Netlify.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

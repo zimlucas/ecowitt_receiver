@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estação Meteorológica — Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #131c2e;
+      --card-2: #1a2640;
+      --text: #e8eef9;
+      --muted: #8a99b5;
+      --line: #243150;
+      --ok: #2ecc71;
+      --fail: #ff5566;
+      --idle: #4a5878;
+      --accent: #4aa8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(1200px 600px at 70% -10%, #16233d 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 4px; }
+    h1 { font-size: 1.5rem; margin: 0; }
+    .sub { color: var(--muted); font-size: 0.85rem; }
+    .updated { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+    .grid {
+      display: grid; gap: 14px; margin: 18px 0;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    .card {
+      background: linear-gradient(180deg, var(--card-2), var(--card));
+      border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+    }
+    .label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .value { font-size: 1.7rem; font-weight: 650; margin-top: 4px; line-height: 1.1; }
+    .unit { font-size: 0.9rem; color: var(--muted); font-weight: 500; }
+    .small { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    h2 { font-size: 1rem; margin: 26px 0 10px; color: var(--text); }
+    .monitors { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .mon { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+    .mon-head { display: flex; align-items: center; justify-content: space-between; }
+    .mon-name { font-weight: 650; font-size: 1.05rem; }
+    .pill { font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.04em; }
+    .pill.ok { background: rgba(46,204,113,0.15); color: var(--ok); border: 1px solid rgba(46,204,113,0.35); }
+    .pill.fail { background: rgba(255,85,102,0.13); color: var(--fail); border: 1px solid rgba(255,85,102,0.35); }
+    .pill.idle { background: rgba(74,88,120,0.18); color: var(--muted); border: 1px solid var(--line); }
+    .mon-msg { color: var(--muted); font-size: 0.8rem; margin-top: 10px; word-break: break-word; min-height: 1.1em; }
+    .strip { display: flex; gap: 3px; margin-top: 12px; flex-wrap: wrap; }
+    .tick { width: 10px; height: 10px; border-radius: 3px; background: var(--idle); }
+    .tick.ok { background: var(--ok); }
+    .tick.fail { background: var(--fail); }
+    .note { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+    .banner {
+      background: rgba(255,180,60,0.1); border: 1px solid rgba(255,180,60,0.35);
+      color: #ffd591; border-radius: 12px; padding: 10px 14px; font-size: 0.85rem; margin: 14px 0;
+    }
+    a { color: var(--accent); }
+    footer { color: var(--muted); font-size: 0.78rem; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+    code { background: #0e1626; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1 id="stationName">Estação Meteorológica</h1>
+        <div class="sub" id="coords">—</div>
+      </div>
+      <div class="updated"><span class="dot" id="liveDot"></span> <span id="updated">conectando…</span></div>
+    </header>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <h2>Condições atuais</h2>
+    <div class="grid" id="conditions">
+      <div class="card"><div class="label">Temperatura</div><div class="value" id="temp">—</div><div class="small" id="dew">—</div></div>
+      <div class="card"><div class="label">Umidade</div><div class="value" id="hum">—</div></div>
+      <div class="card"><div class="label">Vento</div><div class="value" id="wind">—</div><div class="small" id="windms">—</div></div>
+      <div class="card"><div class="label">Rajada</div><div class="value" id="gust">—</div></div>
+      <div class="card"><div class="label">Direção</div><div class="value" id="dir">—</div></div>
+      <div class="card"><div class="label">Pressão</div><div class="value" id="press">—</div></div>
+      <div class="card"><div class="label">Solar</div><div class="value" id="solar">—</div></div>
+      <div class="card"><div class="label">UV</div><div class="value" id="uv">—</div></div>
+    </div>
+
+    <h2>Monitor de envio (últimos posts)</h2>
+    <div class="monitors" id="monitors">
+      <div class="mon" data-svc="windy">
+        <div class="mon-head"><span class="mon-name">Windy</span><span class="pill idle" data-pill>—</span></div>
+        <div class="mon-msg" data-msg>aguardando primeiro envio…</div>
+        <div class="strip" data-strip></div>
+      </div>
+      <div class="mon" data-svc="wunderground">
+        <div class="mon-head"><span class="mon-name">Weather Underground</span><span class="pill idle" data-pill>—</span></div>
+        <div class="mon-msg" data-msg>aguardando primeiro envio…</div>
+        <div class="strip" data-strip></div>
+      </div>
+      <div class="mon" data-svc="windguru">
+        <div class="mon-head"><span class="mon-name">Windguru</span><span class="pill idle" data-pill>—</span></div>
+        <div class="mon-msg" data-msg>aguardando primeiro envio…</div>
+        <div class="strip" data-strip></div>
+      </div>
+    </div>
+    <div class="note" id="cycleNote"></div>
+
+    <footer>
+      Atualiza automaticamente a cada 30s. Os envios acontecem a cada 5 minutos pela função agendada do Netlify.
+      Histórico: <code>backfill.py</code> reenvia dados antigos para Windy e Weather Underground (Windguru não aceita dados &gt; 2h).
+    </footer>
+  </div>
+
+  <script>
+    const API = "/api/status";
+
+    const fmt = (v, digits = 1) =>
+      v === null || v === undefined || Number.isNaN(v) ? "—" : Number(v).toFixed(digits);
+
+    function ago(iso) {
+      if (!iso) return "—";
+      const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+      if (s < 60) return `há ${s}s`;
+      const m = Math.round(s / 60);
+      if (m < 60) return `há ${m} min`;
+      return `há ${Math.round(m / 60)}h`;
+    }
+
+    function setConditions(d) {
+      if (!d) return;
+      document.getElementById("temp").innerHTML = `${fmt(d.temp_c)}<span class="unit"> °C</span>`;
+      document.getElementById("dew").textContent = `Ponto de orvalho ${fmt(d.dewpt_c)} °C`;
+      document.getElementById("hum").innerHTML = `${fmt(d.humidity, 0)}<span class="unit"> %</span>`;
+      document.getElementById("wind").innerHTML = `${fmt(d.wind_knots)}<span class="unit"> nós</span>`;
+      document.getElementById("windms").textContent = `${fmt(d.wind_ms, 1)} m/s`;
+      document.getElementById("gust").innerHTML = `${fmt(d.gust_knots)}<span class="unit"> nós</span>`;
+      document.getElementById("dir").innerHTML =
+        `${fmt(d.wind_direction, 0)}<span class="unit">° ${d.wind_compass || ""}</span>`;
+      document.getElementById("press").innerHTML = `${fmt(d.pressure_hpa)}<span class="unit"> hPa</span>`;
+      document.getElementById("solar").innerHTML = `${fmt(d.solar, 0)}<span class="unit"> W/m²</span>`;
+      document.getElementById("uv").textContent = fmt(d.uv, 0);
+    }
+
+    function setMonitor(svc, post, log) {
+      const card = document.querySelector(`.mon[data-svc="${svc}"]`);
+      const pill = card.querySelector("[data-pill]");
+      const msg = card.querySelector("[data-msg]");
+      const strip = card.querySelector("[data-strip]");
+
+      if (post) {
+        const ok = post.ok;
+        pill.className = `pill ${ok ? "ok" : "fail"}`;
+        pill.textContent = ok ? "OK" : "FALHOU";
+        msg.textContent = `HTTP ${post.code} · ${post.message || ""} · ${ago(post.at)}`;
+      }
+
+      strip.innerHTML = "";
+      (log || []).slice(-30).forEach((entry) => {
+        const t = document.createElement("span");
+        t.className = `tick ${entry[svc] ? "ok" : "fail"}`;
+        t.title = `${new Date(entry.at).toLocaleString()} — ${entry[svc] ? "OK" : "falhou"}`;
+        strip.appendChild(t);
+      });
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(API, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.station) {
+          document.getElementById("stationName").textContent = data.station.name || "Estação Meteorológica";
+          if (data.station.lat != null && data.station.lon != null) {
+            document.getElementById("coords").textContent =
+              `${Number(data.station.lat).toFixed(5)}, ${Number(data.station.lon).toFixed(5)}`;
+          }
+        }
+
+        const liveIso = data.latest?.at || data.status?.updated_at;
+        document.getElementById("updated").textContent = `Atualizado ${ago(liveIso)}`;
+        const stale = liveIso ? (Date.now() - new Date(liveIso).getTime()) > 7 * 60 * 1000 : true;
+        document.getElementById("liveDot").style.background = stale ? "var(--fail)" : "var(--ok)";
+
+        const banner = document.getElementById("banner");
+        if (!data.latest && !data.status) {
+          banner.style.display = "block";
+          banner.innerHTML =
+            "Ainda não há dados. A função agendada roda a cada 5 minutos e o primeiro envio acontece poucos minutos após o deploy. " +
+            "Em <em>Deploy Previews</em> as funções agendadas não rodam — publique o deploy de produção.";
+        } else {
+          banner.style.display = "none";
+        }
+
+        setConditions(data.latest?.display || data.status?.weather);
+
+        const posts = data.status?.posts || {};
+        setMonitor("windy", posts.windy, data.log);
+        setMonitor("wunderground", posts.wunderground, data.log);
+        setMonitor("windguru", posts.windguru, data.log);
+
+        if (data.status) {
+          document.getElementById("cycleNote").textContent =
+            `Último ciclo de envio ${ago(data.status.updated_at)}.`;
+        }
+      } catch (err) {
+        document.getElementById("updated").textContent = "erro ao carregar";
+        document.getElementById("liveDot").style.background = "var(--fail)";
+      }
+    }
+
+    // Try to fill station name/coords from a global injected by the build, else leave defaults.
+    refresh();
+    setInterval(refresh, 30000);
+  </script>
+</body>
+</html>
