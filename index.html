@@ -66,7 +66,37 @@
     a { color: var(--accent); }
     footer { color: var(--muted); font-size: 0.78rem; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
     code { background: #0e1626; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 0.85em; }
+
+    .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      background: var(--card-2); border: 1px solid var(--line); color: var(--text);
+      padding: 7px 14px; border-radius: 999px; font-size: 0.82rem; cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn.active { background: var(--accent); border-color: var(--accent); color: #04121f; font-weight: 650; }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .chart-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .chart-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .chart-wrap { position: relative; height: 320px; margin-top: 12px; }
+    .legend { display: flex; gap: 18px; font-size: 0.8rem; color: var(--muted); margin-top: 10px; flex-wrap: wrap; align-items: center; }
+    .legend .k { display: inline-flex; align-items: center; gap: 7px; }
+    .swatch { width: 16px; height: 3px; border-radius: 2px; background: var(--accent); display: inline-block; }
+    .swatch.dot { width: 9px; height: 9px; border-radius: 50%; background: #ffae57; }
+    .hint { color: var(--muted); font-size: 0.74rem; margin-top: 8px; }
+    .bf { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-top: 18px; }
+    .bf-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .bf-status { color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
+    .bf-code {
+      width: 84px; background: #0e1626; border: 1px solid var(--line); color: var(--text);
+      border-radius: 999px; padding: 7px 14px; font-size: 0.9rem; letter-spacing: 0.3em; text-align: center;
+    }
+    .bf-code:focus { outline: none; border-color: var(--accent); }
+    .dir-arrow { display: inline-block; color: var(--accent); transition: transform .4s ease; transform-origin: center; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -84,13 +114,31 @@
     <div class="grid" id="conditions">
       <div class="card"><div class="label">Temperatura</div><div class="value" id="temp">—</div><div class="small" id="dew">—</div></div>
       <div class="card"><div class="label">Umidade</div><div class="value" id="hum">—</div></div>
-      <div class="card"><div class="label">Vento</div><div class="value" id="wind">—</div><div class="small" id="windms">—</div></div>
-      <div class="card"><div class="label">Rajada</div><div class="value" id="gust">—</div></div>
-      <div class="card"><div class="label">Direção</div><div class="value" id="dir">—</div></div>
+      <div class="card"><div class="label">Vento</div><div class="value" id="wind">—</div><div class="small" id="windms">—</div><div class="small" id="windkmh">—</div></div>
+      <div class="card"><div class="label">Rajada</div><div class="value" id="gust">—</div><div class="small" id="gustms">—</div><div class="small" id="gustkmh">—</div></div>
+      <div class="card"><div class="label">Direção</div><div class="value"><span id="dirArrow" class="dir-arrow">↑</span> <span id="dir">—</span></div></div>
       <div class="card"><div class="label">Pressão</div><div class="value" id="press">—</div></div>
       <div class="card"><div class="label">Solar</div><div class="value" id="solar">—</div></div>
       <div class="card"><div class="label">UV</div><div class="value" id="uv">—</div></div>
     </div>
+
+    <section class="chart-card" style="margin-top:18px">
+      <div class="chart-head">
+        <h2 style="margin:0">Vento</h2>
+        <div class="btnrow">
+          <button class="btn active" data-range="24h">24H</button>
+          <button class="btn" data-range="7d">Semana</button>
+          <button class="btn" data-range="30d">Mês</button>
+          <button class="btn" data-range="1y">Ano</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="windChart"></canvas></div>
+      <div class="legend">
+        <span class="k"><span class="swatch"></span> Vento médio (nós)</span>
+        <span class="k"><span class="swatch dot"></span> Rajada (nós)</span>
+        <span id="chartHint" class="hint" style="margin:0 0 0 auto">Arraste para o lado para ver o histórico · role o mouse para zoom</span>
+      </div>
+    </section>
 
     <h2>Monitor de envio (últimos posts)</h2>
     <div class="monitors" id="monitors">
@@ -112,14 +160,337 @@
     </div>
     <div class="note" id="cycleNote"></div>
 
+    <div class="bf">
+      <div class="bf-row">
+        <button class="btn" id="bfBtn">Reenviar últimos 2 dias → Weather Underground</button>
+        <input id="bfCode" class="bf-code" type="password" inputmode="numeric" maxlength="4"
+               autocomplete="off" placeholder="XXXX" aria-label="código de 4 dígitos" />
+        <span class="hint" style="margin:0">Preenche lacunas recentes no WU. Para meses, rode <code>backfill.py</code> localmente.</span>
+      </div>
+      <div class="bf-status" id="bfStatus">—</div>
+    </div>
+
     <footer>
       Atualiza automaticamente a cada 30s. Os envios acontecem a cada 5 minutos pela função agendada do Netlify.
-      Histórico: <code>backfill.py</code> reenvia dados antigos para Windy e Weather Underground (Windguru não aceita dados &gt; 2h).
+      O gráfico de vento vem do histórico da Ecowitt Cloud. Histórico: <code>backfill.py</code> reenvia dados antigos
+      para Windy e Weather Underground (Windguru não aceita dados &gt; 2h).
     </footer>
   </div>
 
   <script>
     const API = "/api/status";
+    const PREVIEW = window.__PREVIEW__ || null;
+
+    // Register the zoom plugin defensively (UMD usually auto-registers).
+    try {
+      const zp = window.ChartZoom || window.chartjsPluginZoom || window["chartjs-plugin-zoom"];
+      if (window.Chart && zp && !Chart.registry.plugins.get("zoom")) Chart.register(zp.default || zp);
+    } catch (e) {}
+
+    async function getStatus() {
+      if (PREVIEW) return PREVIEW.status;
+      const res = await fetch(API, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    // ---- Wind chart (adaptive level-of-detail) ----
+    // Each level has a uniform resolution over its whole extent. Buttons set the
+    // initial view; zooming/panning switches level automatically based on how
+    // much time is visible, always keeping a constant resolution per period.
+    const DAY = 86400;
+    const LEVELS = {
+      "5min": { res: 300, extentSec: 7 * DAY },
+      "30min": { res: 1800, extentSec: 56 * DAY },
+      "4hour": { res: 14400, extentSec: 180 * DAY },
+      "1day": { res: 86400, extentSec: 365 * DAY },
+    };
+    const VIEW_SPAN = { "24h": DAY, "7d": 7 * DAY, "30d": 30 * DAY, "1y": 365 * DAY };
+    const LEVEL_BTN = { "5min": "24h", "30min": "7d", "4hour": "30d", "1day": "1y" };
+
+    const levelCache = {};
+    let windChart = null;
+    let currentLevel = "5min";
+    let serverNow = Math.floor(Date.now() / 1000);
+    let switching = false;
+    let arrowPoints = [];
+    let dirByTs = new Map();
+
+    // One arrow every 5 chart points (fixed cadence).
+    function computeArrows(points) {
+      const arr = [];
+      const valid = points.filter((p) => p.dir != null && p.wind_knots != null);
+      for (let i = 0; i < valid.length; i += 5) arr.push(valid[i]);
+      return arr;
+    }
+
+    // Minimalist arrows right on the wind line, rotated to flow direction
+    // (pointing up = wind blowing from south to north).
+    const windArrowsPlugin = {
+      id: "windArrows",
+      afterDatasetsDraw(chart) {
+        if (!arrowPoints.length) return;
+        const { ctx, chartArea, scales } = chart;
+        const xMin = scales.x.min, xMax = scales.x.max, len = 6;
+        ctx.save();
+        ctx.strokeStyle = "rgba(232,238,249,0.9)";
+        ctx.fillStyle = "rgba(232,238,249,0.9)";
+        ctx.lineWidth = 1.3;
+        for (const p of arrowPoints) {
+          const xMs = p.ts * 1000;
+          if (xMs < xMin || xMs > xMax) continue;
+          const x = scales.x.getPixelForValue(xMs);
+          if (x < chartArea.left || x > chartArea.right) continue;
+          const y = scales.y.getPixelForValue(p.wind_knots);
+          const rot = ((Number(p.dir) + 180) % 360) * Math.PI / 180;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(rot);
+          ctx.beginPath(); ctx.moveTo(0, len); ctx.lineTo(0, -len); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0, -len - 1); ctx.lineTo(-3, -len + 4); ctx.lineTo(3, -len + 4);
+          ctx.closePath(); ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      },
+    };
+
+    // Pick the resolution level for a visible span (seconds). The thresholds sit
+    // just above each view so e.g. zooming into a single day jumps to 5-min data.
+    function levelForSpan(spanSec) {
+      if (spanSec <= 1.5 * DAY) return "5min";
+      if (spanSec <= 10 * DAY) return "30min";
+      if (spanSec <= 45 * DAY) return "4hour";
+      return "1day";
+    }
+
+    function visibleSpanSec() {
+      if (!windChart) return DAY;
+      return (windChart.scales.x.max - windChart.scales.x.min) / 1000;
+    }
+
+    function axisLabel(ms) {
+      const d = new Date(ms);
+      const p = (n) => String(n).padStart(2, "0");
+      return visibleSpanSec() <= 1.5 * DAY
+        ? `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+        : `${p(d.getDate())}/${p(d.getMonth() + 1)}`;
+    }
+
+    function tooltipTitle(ms) {
+      const d = new Date(ms);
+      const p = (n) => String(n).padStart(2, "0");
+      const date = `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+      const time = `${p(d.getHours())}:${p(d.getMinutes())}`;
+      return visibleSpanSec() <= 1.5 * DAY ? time : `${date} ${time}`;
+    }
+
+    // Gridlines/ticks at round boundaries (00, 06, 12, 18 ... / midnight / 1st of
+    // month), with the step adapting to the visible span.
+    function niceTicks(minMs, maxMs) {
+      const spanH = (maxMs - minMs) / 3600000;
+      const ticks = [];
+      if (spanH <= 16 * 24) {
+        const stepH = spanH <= 2 * 24 ? 6 : spanH <= 4 * 24 ? 12 : 24;
+        const d = new Date(minMs);
+        d.setMinutes(0, 0, 0);
+        while (d.getHours() % stepH !== 0 || d.getTime() < minMs) d.setHours(d.getHours() + 1);
+        for (let t = d.getTime(); t <= maxMs; ) {
+          ticks.push(t);
+          const nd = new Date(t); nd.setHours(nd.getHours() + stepH); t = nd.getTime();
+        }
+      } else if (spanH <= 80 * 24) {
+        const d = new Date(minMs);
+        d.setHours(0, 0, 0, 0);
+        while (d.getTime() < minMs) d.setDate(d.getDate() + 1);
+        for (let t = d.getTime(); t <= maxMs; ) {
+          ticks.push(t);
+          const nd = new Date(t); nd.setDate(nd.getDate() + 7); t = nd.getTime();
+        }
+      } else {
+        const d = new Date(minMs);
+        d.setDate(1); d.setHours(0, 0, 0, 0);
+        while (d.getTime() < minMs) d.setMonth(d.getMonth() + 1);
+        for (let t = d.getTime(); t <= maxMs; ) {
+          ticks.push(t);
+          const nd = new Date(t); nd.setMonth(nd.getMonth() + 1); t = nd.getTime();
+        }
+      }
+      return ticks.map((value) => ({ value }));
+    }
+
+    async function getLevel(levelName) {
+      const cached = levelCache[levelName];
+      const ttlMs = LEVELS[levelName].res * 1000; // refresh roughly once per resolution step
+      if (cached && (PREVIEW || Date.now() - cached.fetchedAt < ttlMs)) return cached.hist;
+      let hist;
+      if (PREVIEW) {
+        hist = (PREVIEW.history && PREVIEW.history[levelName]) || { points: [] };
+      } else {
+        const res = await fetch(`/api/history?level=${levelName}`, { cache: "no-store" });
+        hist = await res.json();
+      }
+      levelCache[levelName] = { hist, fetchedAt: Date.now() };
+      if (hist.server_time) serverNow = hist.server_time;
+      return hist;
+    }
+
+    function cachedPoints(levelName) {
+      return (levelCache[levelName] && levelCache[levelName].hist) || { points: [] };
+    }
+
+    function compassPt(deg) {
+      const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+      return dirs[Math.round(deg / 22.5) % 16];
+    }
+
+    function datasetsFrom(points) {
+      const wind = points.filter((p) => p.wind_knots != null).map((p) => ({ x: p.ts * 1000, y: p.wind_knots }));
+      const gust = points.filter((p) => p.gust_knots != null).map((p) => ({ x: p.ts * 1000, y: p.gust_knots }));
+      dirByTs = new Map(points.filter((p) => p.dir != null).map((p) => [p.ts * 1000, p.dir]));
+      return { wind, gust };
+    }
+
+    function highlightButton(viewKey) {
+      document.querySelectorAll("[data-range]").forEach((b) =>
+        b.classList.toggle("active", b.dataset.range === viewKey));
+    }
+
+    function ensureChart() {
+      if (windChart) return windChart;
+      windChart = new Chart(document.getElementById("windChart"), {
+        type: "scatter",
+        plugins: [windArrowsPlugin],
+        data: {
+          datasets: [
+            { label: "Vento", data: [], showLine: true, borderColor: "#4aa8ff",
+              backgroundColor: "#4aa8ff", borderWidth: 2, pointRadius: 0, tension: 0.25, order: 2 },
+            { label: "Rajada", data: [], showLine: false, pointRadius: 2.4, pointHoverRadius: 4,
+              backgroundColor: "#ffae57", borderColor: "#ffae57", order: 1 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+          interaction: { mode: "index", intersect: false, axis: "x" },
+          scales: {
+            x: { type: "linear",
+                 afterBuildTicks: (axis) => { axis.ticks = niceTicks(axis.min, axis.max); },
+                 ticks: { color: "#8a99b5", maxRotation: 0, autoSkip: false,
+                          callback: (v) => axisLabel(v) },
+                 grid: { color: "rgba(255,255,255,0.08)" } },
+            y: { beginAtZero: true, title: { display: true, text: "nós", color: "#8a99b5" },
+                 ticks: { color: "#8a99b5" }, grid: { color: "rgba(255,255,255,0.05)" } },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => tooltipTitle(items[0].parsed.x),
+                label: (it) => `${it.dataset.label}: ${it.parsed.y.toFixed(1)} nós`,
+                afterBody: (items) => {
+                  const dir = dirByTs.get(items[0].parsed.x);
+                  return dir == null ? [] : [`Direção: ${Math.round(dir)}° ${compassPt(dir)}`];
+                },
+              },
+            },
+            zoom: {
+              pan: { enabled: true, mode: "x", onPanComplete: onViewChange },
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x", onZoomComplete: onViewChange },
+            },
+          },
+        },
+      });
+      return windChart;
+    }
+
+    // Load a level's data into the chart while keeping the requested x-window
+    // (clamped to that level's extent) and updating the pan/zoom limits.
+    function applyLevel(levelName, xMinMs, xMaxMs) {
+      const hist = cachedPoints(levelName);
+      const { wind, gust } = datasetsFrom(hist.points || []);
+      const chart = ensureChart();
+      chart.data.datasets[0].data = wind;
+      chart.data.datasets[1].data = gust;
+      arrowPoints = computeArrows(hist.points || []);
+
+      const nowMs = serverNow * 1000;
+      const extentMinMs = (serverNow - LEVELS[levelName].extentSec) * 1000;
+      chart.options.scales.x.min = Math.max(xMinMs, extentMinMs);
+      chart.options.scales.x.max = Math.min(xMaxMs, nowMs);
+      chart.options.plugins.zoom.limits = { x: { min: extentMinMs, max: nowMs, minRange: 60 * 60 * 1000 } };
+      currentLevel = levelName;
+      chart.update("none");
+      highlightButton(LEVEL_BTN[levelName]);
+    }
+
+    // Called after a pan or zoom: switch resolution level if the visible span
+    // crossed a threshold, preserving the current time window.
+    async function onViewChange({ chart }) {
+      if (switching) return;
+      const xMin = chart.scales.x.min;
+      const xMax = chart.scales.x.max;
+      const desired = levelForSpan((xMax - xMin) / 1000);
+      if (desired === currentLevel) return;
+      switching = true;
+      try {
+        await getLevel(desired);
+        applyLevel(desired, xMin, xMax);
+      } finally {
+        switching = false;
+      }
+    }
+
+    // Button handler: set the initial view span and load the matching level.
+    async function selectView(viewKey) {
+      const span = VIEW_SPAN[viewKey];
+      const level = levelForSpan(span);
+      const hint = document.getElementById("chartHint");
+      try {
+        const hist = await getLevel(level);
+        ensureChart();
+        const xMax = serverNow * 1000;
+        const xMin = xMax - span * 1000;
+        applyLevel(level, xMin, xMax);
+        hint.textContent = (!hist.points || hist.points.length === 0)
+          ? (hist.error ? "Erro ao carregar histórico." : "Sem dados para este período.")
+          : "Arraste para o lado para ver o histórico · role o mouse para zoom";
+      } catch (e) {
+        hint.textContent = "Erro ao carregar histórico.";
+      }
+    }
+
+
+    // ---- Backfill ----
+    function renderBackfill(bf) {
+      const el = document.getElementById("bfStatus");
+      if (!bf) { el.textContent = "Nenhum reenvio executado ainda."; return; }
+      if (bf.running) {
+        el.textContent = `Em andamento… ${bf.posted}/${bf.total} pontos enviados (${bf.failed} falhas).`;
+      } else if (bf.finished_at) {
+        el.textContent = `Último reenvio (${bf.days}d): ${bf.posted} enviados, ${bf.failed} falhas — ${ago(bf.finished_at)}.`
+          + (bf.error ? ` Erro: ${bf.error}` : "");
+      } else {
+        el.textContent = "Nenhum reenvio executado ainda.";
+      }
+    }
+
+    async function runBackfill() {
+      const input = document.getElementById("bfCode");
+      const code = (input.value || "").trim();
+      if (code !== "1709") {
+        alert("Código incorreto. Digite o código de 4 dígitos para reenviar o histórico.");
+        input.focus();
+        return;
+      }
+      input.value = "";
+      if (PREVIEW) { alert("Código correto. O reenvio roda no site publicado no Netlify, disponível após o deploy."); return; }
+      const btn = document.getElementById("bfBtn");
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Iniciando…";
+      try { await fetch("/.netlify/functions/backfill-background?days=2", { method: "POST" }); } catch (e) {}
+      setTimeout(() => { btn.textContent = original; btn.disabled = false; refresh(); }, 5000);
+    }
 
     const fmt = (v, digits = 1) =>
       v === null || v === undefined || Number.isNaN(v) ? "—" : Number(v).toFixed(digits);
@@ -138,11 +509,25 @@
       document.getElementById("temp").innerHTML = `${fmt(d.temp_c)}<span class="unit"> °C</span>`;
       document.getElementById("dew").textContent = `Ponto de orvalho ${fmt(d.dewpt_c)} °C`;
       document.getElementById("hum").innerHTML = `${fmt(d.humidity, 0)}<span class="unit"> %</span>`;
+      const windMs = d.wind_ms != null ? d.wind_ms : (d.wind_knots != null ? d.wind_knots * 0.514444 : null);
+      const windKmh = d.wind_kmh != null ? d.wind_kmh : (d.wind_knots != null ? d.wind_knots * 1.852 : null);
+      const gustMs = d.gust_ms != null ? d.gust_ms : (d.gust_knots != null ? d.gust_knots * 0.514444 : null);
+      const gustKmh = d.gust_kmh != null ? d.gust_kmh : (d.gust_knots != null ? d.gust_knots * 1.852 : null);
       document.getElementById("wind").innerHTML = `${fmt(d.wind_knots)}<span class="unit"> nós</span>`;
-      document.getElementById("windms").textContent = `${fmt(d.wind_ms, 1)} m/s`;
+      document.getElementById("windms").textContent = `${fmt(windMs, 1)} m/s`;
+      document.getElementById("windkmh").textContent = `${fmt(windKmh, 1)} km/h`;
       document.getElementById("gust").innerHTML = `${fmt(d.gust_knots)}<span class="unit"> nós</span>`;
+      document.getElementById("gustms").textContent = `${fmt(gustMs, 1)} m/s`;
+      document.getElementById("gustkmh").textContent = `${fmt(gustKmh, 1)} km/h`;
       document.getElementById("dir").innerHTML =
         `${fmt(d.wind_direction, 0)}<span class="unit">° ${d.wind_compass || ""}</span>`;
+      const arrow = document.getElementById("dirArrow");
+      if (d.wind_direction != null) {
+        arrow.style.transform = `rotate(${(Number(d.wind_direction) + 180) % 360}deg)`;
+        arrow.style.opacity = "1";
+      } else {
+        arrow.style.opacity = "0.3";
+      }
       document.getElementById("press").innerHTML = `${fmt(d.pressure_hpa)}<span class="unit"> hPa</span>`;
       document.getElementById("solar").innerHTML = `${fmt(d.solar, 0)}<span class="unit"> W/m²</span>`;
       document.getElementById("uv").textContent = fmt(d.uv, 0);
@@ -172,9 +557,7 @@
 
     async function refresh() {
       try {
-        const res = await fetch(API, { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await getStatus();
 
         if (data.station) {
           document.getElementById("stationName").textContent = data.station.name || "Estação Meteorológica";
@@ -210,15 +593,20 @@
           document.getElementById("cycleNote").textContent =
             `Último ciclo de envio ${ago(data.status.updated_at)}.`;
         }
+        renderBackfill(data.backfill);
       } catch (err) {
         document.getElementById("updated").textContent = "erro ao carregar";
         document.getElementById("liveDot").style.background = "var(--fail)";
       }
     }
 
-    // Try to fill station name/coords from a global injected by the build, else leave defaults.
+    document.getElementById("bfBtn").addEventListener("click", runBackfill);
+    document.querySelectorAll("[data-range]").forEach((b) =>
+      b.addEventListener("click", () => selectView(b.dataset.range)));
+
     refresh();
-    setInterval(refresh, 30000);
+    selectView("24h");
+    if (!PREVIEW) setInterval(refresh, 30000);
   </script>
 </body>
 </html>

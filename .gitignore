@@ -9,6 +9,11 @@ venv/
 .env.*
 !.env.example
 
+# Local preview artifacts (not deployed)
+preview.html
+_*.mjs
+_*.json
+
 # Local monitoring script
 local_monitor.py
 

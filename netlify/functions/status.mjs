@@ -12,10 +12,11 @@ const HEADERS = {
 export default async () => {
   const store = getStore({ name: "ecowitt", consistency: "strong" });
 
-  const [latest, status, log] = await Promise.all([
+  const [latest, status, log, backfill] = await Promise.all([
     store.get("latest", { type: "json" }),
     store.get("status", { type: "json" }),
     store.get("log", { type: "json" }),
+    store.get("backfill_status", { type: "json" }),
   ]);
 
   const body = {
@@ -28,6 +29,7 @@ export default async () => {
     latest: latest || null,
     status: status || null,
     log: log || [],
+    backfill: backfill || null,
   };
 
   return new Response(JSON.stringify(body), { headers: HEADERS });

@@ -25,9 +25,16 @@ export default async () => {
     display: toDisplay(sample),
   });
 
-  // 3. Post the reading to all three services.
+  // 2b. Skip posting when the station has no new reading since last time. This
+  // avoids posting duplicate timestamps (which Windy rejects) and redundant data.
+  const lastTs = (await store.get("last_ts", { type: "json" }))?.ts;
+  if (sample.ts && sample.ts === lastTs) {
+    return new Response("no new reading");
+  }
+
+  // 3. Post the reading to all three services, using its real observation time.
   const { raw, display } = aggregate([sample]);
-  const posts = await postAll(raw);
+  const posts = await postAll(raw, sample.ts);
 
   const status = {
     updated_at: new Date().toISOString(),
@@ -36,6 +43,7 @@ export default async () => {
     posts,
   };
   await store.setJSON("status", status);
+  await store.setJSON("last_ts", { ts: sample.ts });
 
   const log = (await store.get("log", { type: "json" })) || [];
   log.push({

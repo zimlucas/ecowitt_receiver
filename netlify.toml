@@ -27,5 +27,11 @@
   to = "/.netlify/functions/status"
   status = 200
 
+# Pretty URL for the wind history series.
+[[redirects]]
+  from = "/api/history"
+  to = "/.netlify/functions/history"
+  status = 200
+
 # The schedule itself is declared inline in netlify/functions/poll.mjs
 # via `export const config = { schedule: "*/5 * * * *" }`.
