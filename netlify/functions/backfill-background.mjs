@@ -6,7 +6,7 @@
 //
 // Only Weather Underground is backfilled: Windy and Windguru both reject data
 // older than ~2 h.
-import { getStore } from "@netlify/blobs";
+import { getStore } from "../../lib/store.mjs";
 import { fetchHistory, samplesFromHistory } from "../../lib/ecowitt.mjs";
 import { postWunderground } from "../../lib/posters.mjs";
 

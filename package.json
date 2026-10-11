@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Posts an Ecowitt weather station to Windy, Weather Underground and Windguru on a schedule, with a status dashboard. Runs on Netlify.",
+  "scripts": {
+    "dev": "node --watch dev/server.mjs"
+  },
   "engines": {
     "node": ">=22.12"
   },

@@ -1,6 +1,6 @@
 // HTTP function. Returns the latest reading, the last post-cycle result and a
 // short history log as JSON for the dashboard. Read-only.
-import { getStore } from "@netlify/blobs";
+import { getStore } from "../../lib/store.mjs";
 import { config } from "../../lib/config.mjs";
 
 const HEADERS = {

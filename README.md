@@ -13,9 +13,27 @@ no server to keep alive.
 | Scheduled poller | `netlify/functions/poll.mjs` | Runs every 5 min: reads the station, posts to all three services, stores status in Netlify Blobs. |
 | Status API | `netlify/functions/status.mjs` | Serves the latest reading + upload results to the dashboard (`/api/status`). |
 | Dashboard | `index.html` | Static page that polls `/api/status` and shows the monitors. |
-| Wind history API | `netlify/functions/history.mjs` | Wind series for the dashboard chart (`/api/history`). |
+| Wind history API | `netlify/functions/history.mjs` | Wind (+ solar) series for the chart (`/api/history`); past chunks cached in Blobs. |
 | Backfill | `netlify/functions/backfill-background.mjs` | Re-posts recent history to Weather Underground (see below). |
-| Shared code | `lib/` | Config, unit conversion, Ecowitt client, the three posters. |
+| Shared code | `lib/` | Config, unit conversion, Ecowitt client, the three posters, storage. |
+| Local dev | `dev/server.mjs` | `npm run dev`: everything locally, uploads in dry-run. |
+
+The chart's sky emoji (24h and week views) are estimated in the browser from
+solar irradiance: measured vs. clear-sky irradiance for the sun position,
+scaled per hour by the station's own best recent values (it is partly shaded in
+late afternoon), averaged per period.
+
+## Run locally (test before deploying)
+
+```powershell
+npm run dev     # -> http://localhost:8888
+```
+
+`dev/server.mjs` runs the dashboard and the functions locally with real Ecowitt
+data (credentials from `.env`), restarting on code changes. State goes to
+`.dev-data/` instead of Netlify Blobs, and the poller runs every 5 minutes in
+**dry-run**: nothing is posted to Windy / WU / Windguru (set `DRY_RUN=0` in
+`.env` to post for real). No Netlify CLI or `npm install` needed.
 
 ## Deploy to Netlify
 

@@ -3,7 +3,7 @@
 // Runs every 5 minutes. Each run fetches one real-time reading from the station
 // and posts it to Windy, Weather Underground and Windguru. Results are stored in
 // Netlify Blobs for the dashboard.
-import { getStore } from "@netlify/blobs";
+import { getStore } from "../../lib/store.mjs";
 import { fetchRealtime, sampleFromRealtime } from "../../lib/ecowitt.mjs";
 import { aggregate, toDisplay } from "../../lib/convert.mjs";
 import { postAll } from "../../lib/posters.mjs";
