@@ -1,21 +1,8 @@
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.pytest_cache/
-.venv/
-venv/
+node_modules/
+.netlify/
 .env
 .env.*
 !.env.example
-
-# Local preview artifacts (not deployed)
-preview.html
-_*.mjs
-_*.json
-
-# Local monitoring script
-local_monitor.py
 
 # OS / editor
 .DS_Store

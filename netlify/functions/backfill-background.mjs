@@ -5,7 +5,7 @@
 // return 202 immediately, so the dashboard polls /api/status for progress.
 //
 // Only Weather Underground is backfilled: Windy and Windguru both reject data
-// older than ~2 h. For months of history, use backfill.py locally.
+// older than ~2 h.
 import { getStore } from "@netlify/blobs";
 import { fetchHistory, samplesFromHistory } from "../../lib/ecowitt.mjs";
 import { postWunderground } from "../../lib/posters.mjs";
