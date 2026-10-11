@@ -135,7 +135,7 @@ async function serveStatic(pathname, res) {
 async function runPoller() {
   try {
     const mod = await loadFunction("poll");
-    const response = await mod.default(new Request(`http://localhost:${PORT}/.netlify/functions/poll`));
+    const response = await mod.default(new Request(`http://localhost:${port}/.netlify/functions/poll`));
     console.log(`  poll -> ${await response.text()}`);
   } catch (err) {
     console.error("  poll failed:", err);
@@ -144,8 +144,8 @@ async function runPoller() {
 
 const redirects = await loadRedirects();
 
-createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${port}`);
   const target = redirects.get(url.pathname) || url.pathname;
   const fn = target.match(/^\/\.netlify\/functions\/([\w-]+)$/);
   try {
@@ -156,9 +156,24 @@ createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500);
     res.end();
   }
-}).listen(PORT, () => {
-  console.log(`Dev server: http://localhost:${PORT}`);
+});
+
+// If the port is taken (e.g. another dev server still running), say so and use
+// the next free one instead of crashing.
+let port = PORT;
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE" && port < PORT + 10) {
+    console.warn(`Port ${port} is in use (another dev server running?) - trying ${port + 1}.`);
+    server.listen(++port);
+  } else {
+    console.error(err.message);
+    process.exit(1);
+  }
+});
+server.on("listening", () => {
+  console.log(`Dev server: http://localhost:${port}`);
   console.log(`DRY_RUN=${process.env.DRY_RUN} (${process.env.DRY_RUN === "1" ? "uploads are skipped" : "UPLOADS ARE REAL"})`);
   runPoller();
   setInterval(runPoller, 5 * 60 * 1000);
 });
+server.listen(port);
