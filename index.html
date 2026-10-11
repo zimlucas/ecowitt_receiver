@@ -158,7 +158,7 @@
         <span class="k"><span class="swatch dot"></span> Rajada (nós)</span>
         <span class="k sky-legend" id="skyLegend" hidden
               title="Estimado pela radiação solar medida, comparada ao céu limpo esperado para o horário (média por período)">
-          <span>Céu:</span><span>☀️ aberto</span><span>⛅ encoberto</span><span>☁️ fechado</span><span><span class="sky-dark">☁️</span> carregado</span>
+          <span>Céu:</span><span>☀️ aberto</span><span>🌤️ poucas nuvens</span><span>🌥️ encoberto</span><span>☁️ fechado</span><span><span class="sky-dark">☁️</span> carregado</span>
         </span>
         <span id="chartHint" class="hint" style="margin:0 0 0 auto">Arraste para o lado para ver o histórico · role o mouse para zoom</span>
       </div>
@@ -361,7 +361,7 @@
     // ---- Sky condition, estimated from solar irradiance ----
     // Each period compares the measured irradiance with what a clear sky would
     // give at that time and place (sun position + Haurwitz clear-sky model). The
-    // ratio (clear-sky index) picks one of four classes.
+    // ratio (clear-sky index) picks one of five classes.
     //
     // The station gets less sun than the model at some hours (on cloudless days
     // late afternoon tops out at ~40-60%: an obstacle or sensor tilt), so the
@@ -372,8 +372,9 @@
     // zooms out. Only the 24h and week levels show it; night and low sun
     // (< 10 deg, too unreliable to judge) show nothing.
     const SKY_CLASSES = [
-      { min: 0.75, emoji: "☀️", label: "Sol aberto" },
-      { min: 0.45, emoji: "⛅", label: "Sol encoberto" },
+      { min: 0.8, emoji: "☀️", label: "Sol aberto" },
+      { min: 0.6, emoji: "🌤️", label: "Poucas nuvens" },
+      { min: 0.4, emoji: "🌥️", label: "Sol encoberto" },
       { min: 0.2, emoji: "☁️", label: "Fechado" },
       { min: -Infinity, emoji: "☁️", dark: true, label: "Fechado carregado" },
     ];
