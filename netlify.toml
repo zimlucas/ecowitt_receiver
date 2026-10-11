@@ -11,6 +11,10 @@
   functions = "netlify/functions"
 
 [build.environment]
+  # Node 22 LTS for the build and the functions runtime (@netlify/blobs 11
+  # requires Node >= 22.12; Node 18/20 are end-of-life).
+  NODE_VERSION = "22"
+
   # Secrets scanning false positives: these keys are NON-secret station metadata
   # (name, coordinates, public station IDs) that legitimately appear as default
   # fallbacks in lib/config.mjs. The real secrets (Ecowitt/Windy keys, WU/WG

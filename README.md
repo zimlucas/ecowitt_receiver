@@ -36,13 +36,25 @@ watch the dashboard.
 | `ECOWITT_APPLICATION_KEY` | from ecowitt.net |
 | `ECOWITT_API_KEY` | from ecowitt.net |
 | `ECOWITT_MAC` | station MAC (device identifier) |
-| `WINDY_API_KEY` | stations.windy.com → API keys |
+| `WINDY_STATION_ID` | stations.windy.com → My Stations → station ID |
+| `WINDY_STATION_PASSWORD` | same page → station password (secret) |
 | `WU_PASSWORD` | Weather Underground key/password |
 | `WG_PASSWORD` | Windguru password |
 
 `WU_ID`, `WG_UID` and the `STATION_*` values have defaults in `lib/config.mjs`;
 override them with env vars if needed. **No secrets are committed** — set them in
 Netlify (and locally in a gitignored `.env`).
+
+### Windy (Stations API v2)
+
+Uploads use `GET https://stations.windy.com/api/v2/observation/update?id=<station ID>`
+with the station password as `Authorization: Bearer`. The account-wide API key
+(`WINDY_API_KEY`) is **not** accepted for uploads and is no longer used; the
+legacy `/pws/update/<API_KEY>` endpoint shuts down at the end of 2026.
+Windy accepts at most one observation per 5 minutes per station. Pressure is
+stored but only displayed for professional stations.
+
+The functions run on Node 22 (pinned in `netlify.toml`).
 
 ## Free tier
 
@@ -62,9 +74,8 @@ py backfill.py --start 2025-09-01 --end 2026-06-18 --targets wu
 
 - **Weather Underground** accepts months of backdated observations — full
   history can be restored.
-- **Windy** rejects anything older than ~60 minutes, so it cannot be
-  backfilled (only live data going forward).
-- **Windguru** rejects anything older than ~2 hours and is excluded.
+- **Windy** and **Windguru** reject anything older than ~2 hours, so they
+  cannot be backfilled (only live data going forward).
 
 ## Local files (not deployed)
 
