@@ -13,15 +13,31 @@ no server to keep alive.
 | Scheduled poller | `netlify/functions/poll.mjs` | Runs every 5 min: reads the station, posts to all three services, stores status in Netlify Blobs. |
 | Status API | `netlify/functions/status.mjs` | Serves the latest reading + upload results to the dashboard (`/api/status`). |
 | Dashboard | `index.html` | Static page that polls `/api/status` and shows the monitors. |
-| Wind history API | `netlify/functions/history.mjs` | Wind (+ solar) series for the chart (`/api/history`); past chunks cached in Blobs. |
+| History API | `netlify/functions/history.mjs` | One chunk of history per request for the chart (`/api/history?level=&chunk=`). |
+| Archiver | `netlify/functions/archive.mjs` | Hourly: saves every 5-min day (and 30-min week) into Blobs before Ecowitt drops it. |
 | Backfill | `netlify/functions/backfill-background.mjs` | Re-posts recent history to Weather Underground (see below). |
-| Shared code | `lib/` | Config, unit conversion, Ecowitt client, the three posters, storage. |
+| Shared code | `lib/` | Config, unit conversion, Ecowitt client, history chunks, the three posters, storage. |
 | Local dev | `dev/server.mjs` | `npm run dev`: everything locally, uploads in dry-run. |
 
-The chart's sky emoji (24h and week views) are estimated in the browser from
-solar irradiance: measured vs. clear-sky irradiance for the sun position,
-scaled per hour by the station's own best recent values (it is partly shaded in
-late afternoon), averaged per period.
+### History and the chart
+
+History is stored per resolution in fixed, aligned chunks (`lib/chunks.mjs`):
+5-min data in 1-day chunks, 30-min in weeks, 4-hour in months, daily in
+quarters. A chunk whose period has closed never changes, so it is kept in the
+`history` Blobs store forever and served with long browser/CDN cache headers;
+only the latest chunk is re-read from Ecowitt. The chart loads just the chunks
+around what is on screen, so it can be dragged across the whole history (since
+`STATION_SINCE`) in any view.
+
+Ecowitt keeps 5-minute data only ~90 days (older days come back at 30-min
+resolution), so the archiver copies each day into Blobs while it still exists.
+The archive keeps all fields (wind, direction, solar, UV, temperature, dew
+point, humidity, pressure): about 10-15 MB per year.
+
+The sky emoji (24h and week views) are estimated in the browser from solar
+irradiance: measured vs. clear-sky irradiance for the sun position, scaled per
+hour by the station's own best values of the previous 3 weeks (it is partly
+shaded in late afternoon), averaged per period. Night is shaded in the plot.
 
 ## Run locally (test before deploying)
 
@@ -31,9 +47,10 @@ npm run dev     # -> http://localhost:8888
 
 `dev/server.mjs` runs the dashboard and the functions locally with real Ecowitt
 data (credentials from `.env`), restarting on code changes. State goes to
-`.dev-data/` instead of Netlify Blobs, and the poller runs every 5 minutes in
-**dry-run**: nothing is posted to Windy / WU / Windguru (set `DRY_RUN=0` in
-`.env` to post for real). No Netlify CLI or `npm install` needed.
+`.dev-data/` instead of Netlify Blobs, and the scheduled functions run on
+their schedules with the poller in **dry-run**: nothing is posted to Windy /
+WU / Windguru (set `DRY_RUN=0` in `.env` to post for real). No Netlify CLI or
+`npm install` needed. If port 8888 is busy, the next free port is used.
 
 ## Deploy to Netlify
 
@@ -77,9 +94,13 @@ The functions run on Node 22 (pinned in `netlify.toml`).
 
 ## Free tier
 
-The poller runs every 5 minutes ≈ 8,640 invocations/month, well within
-Netlify's free tier (125k requests, 100 runtime-hours). The dashboard's
-`/api/status` calls only happen while a browser tab is open.
+Netlify's current free plan is credit-based: 300 credits/month, and the site is
+**paused** when they run out. Rough budget: compute is 10 credits per GB-hour
+(the 5-min poller is the main consumer, roughly 60 credits/month), web requests
+2 credits per 10k, and **every production deploy costs 15 credits** — test
+locally with `npm run dev` and deploy in batches. The chart is cheap: past
+chunks come from browser/CDN caches without running a function. Check actual
+usage under **Usage & billing**.
 
 ## Historical backfill
 

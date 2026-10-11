@@ -9,9 +9,10 @@
 //   - stores state in .dev-data/ instead of Netlify Blobs (see lib/store.mjs);
 //   - DRY_RUN=1 by default: nothing is posted to Windy / WU / Windguru.
 //     Start with DRY_RUN=0 in .env to really post (careful!);
-//   - runs the scheduled poller on start and then on its schedule (every 5 min).
+//   - runs the scheduled functions (poller every 5 min, archiver hourly) on
+//     start and then on their schedule.
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -131,14 +132,42 @@ async function serveStatic(pathname, res) {
   }
 }
 
-// The scheduled poller: once on start, then every 5 minutes (like */5 * * * *).
-async function runPoller() {
+// Scheduled functions (those exporting config.schedule): each runs once on
+// start, then on an interval approximating its cron expression.
+function scheduleMinutes(cron) {
+  if (cron === "@hourly") return 60;
+  if (cron === "@daily") return 1440;
+  const every = cron.match(/^\*\/(\d+) \* \* \* \*$/);
+  if (every) return Number(every[1]);
+  if (/^\d+ \* \* \* \*$/.test(cron)) return 60;
+  return 1440;
+}
+
+async function runScheduled(name) {
   try {
-    const mod = await loadFunction("poll");
-    const response = await mod.default(new Request(`http://localhost:${port}/.netlify/functions/poll`));
-    console.log(`  poll -> ${await response.text()}`);
+    const mod = await loadFunction(name);
+    const response = await mod.default(new Request(`http://localhost:${port}/.netlify/functions/${name}`));
+    console.log(`  ${name} -> ${await response.text()}`);
   } catch (err) {
-    console.error("  poll failed:", err);
+    console.error(`  ${name} failed:`, err);
+  }
+}
+
+async function startSchedules() {
+  const files = (await readdir(FUNCTIONS_DIR)).filter((f) => f.endsWith(".mjs"));
+  let delay = 0;
+  for (const file of files) {
+    const name = file.slice(0, -4);
+    const schedule = (await loadFunction(name)).config?.schedule;
+    if (!schedule) continue;
+    const minutes = scheduleMinutes(schedule);
+    console.log(`Scheduled: ${name} (${schedule}) every ${minutes} min`);
+    // Stagger the first runs so they don't hit Ecowitt at the same moment.
+    setTimeout(() => {
+      runScheduled(name);
+      setInterval(() => runScheduled(name), minutes * 60 * 1000);
+    }, delay);
+    delay += 5000;
   }
 }
 
@@ -173,7 +202,6 @@ server.on("error", (err) => {
 server.on("listening", () => {
   console.log(`Dev server: http://localhost:${port}`);
   console.log(`DRY_RUN=${process.env.DRY_RUN} (${process.env.DRY_RUN === "1" ? "uploads are skipped" : "UPLOADS ARE REAL"})`);
-  runPoller();
-  setInterval(runPoller, 5 * 60 * 1000);
+  startSchedules();
 });
 server.listen(port);
