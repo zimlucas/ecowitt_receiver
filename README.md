@@ -29,6 +29,11 @@ only the latest chunk is re-read from Ecowitt. The chart loads just the chunks
 around what is on screen, so it can be dragged across the whole history (since
 `STATION_SINCE`) in any view.
 
+Below the chart, the wind statistics (wind rose and wind by hour of day) load
+every 30-min week since `STATION_SINCE` and compute everything in the browser,
+filtered by a minimum wind and by month. Only daylight samples count, and a day
+counts only if the wind stayed at or above the minimum for 1 h in a row.
+
 Ecowitt keeps 5-minute data only ~90 days (older days come back at 30-min
 resolution), so the archiver copies each day into Blobs while it still exists.
 The archive keeps all fields (wind, direction, solar, UV, temperature, dew
