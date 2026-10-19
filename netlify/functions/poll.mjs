@@ -9,6 +9,7 @@ import { aggregate, toDisplay } from "../../lib/convert.mjs";
 import { postAll } from "../../lib/posters.mjs";
 
 const LOG_LIMIT = 60; // how many post cycles to keep for the dashboard history strip
+const RECENT_SEC = 2 * 3600; // live readings kept for the chart's right edge
 
 export default async () => {
   const store = getStore({ name: "ecowitt", consistency: "strong" });
@@ -19,11 +20,22 @@ export default async () => {
   if (!sample) return new Response("no data");
 
   // 2. Expose the freshest reading for the dashboard.
+  const live = toDisplay(sample);
   await store.setJSON("latest", {
     at: new Date().toISOString(),
     ts: sample.ts,
-    display: toDisplay(sample),
+    display: live,
   });
+
+  // 2a. Keep the last couple of hours of live wind readings: Ecowitt's history
+  // API publishes each 5-min point ~10 min late, so the chart draws these at
+  // its right edge until the history catches up.
+  const recent = (await store.get("recent", { type: "json" })) || [];
+  if (sample.ts && !recent.some((r) => r.ts === sample.ts)) {
+    recent.push({ ts: sample.ts, wind_knots: live.wind_knots, gust_knots: live.gust_knots,
+      dir: live.wind_direction });
+    await store.setJSON("recent", recent.filter((r) => r.ts > sample.ts - RECENT_SEC));
+  }
 
   // 2b. Skip posting when the station has no new reading since last time. This
   // avoids posting duplicate timestamps (which Windy rejects) and redundant data.

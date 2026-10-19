@@ -12,11 +12,12 @@ const HEADERS = {
 export default async () => {
   const store = getStore({ name: "ecowitt", consistency: "strong" });
 
-  const [latest, status, log, backfill] = await Promise.all([
+  const [latest, status, log, backfill, recent] = await Promise.all([
     store.get("latest", { type: "json" }),
     store.get("status", { type: "json" }),
     store.get("log", { type: "json" }),
     store.get("backfill_status", { type: "json" }),
+    store.get("recent", { type: "json" }),
   ]);
 
   const body = {
@@ -30,6 +31,7 @@ export default async () => {
     status: status || null,
     log: log || [],
     backfill: backfill || null,
+    recent: recent || [], // live wind readings of the last ~2 h, for the chart's right edge
   };
 
   return new Response(JSON.stringify(body), { headers: HEADERS });

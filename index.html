@@ -254,6 +254,7 @@
     let viewSeq = 0; // the latest user action wins; slower, older loads are dropped
     let arrowPoints = [];
     let dirByTs = new Map();
+    let liveTail = []; // live readings from /api/status, newer than the history so far
 
     const nowSec = () => Math.floor(Date.now() / 1000) + clockOffset;
 
@@ -272,7 +273,7 @@
     const queue = [];
     let activeFetches = 0;
     const MAX_FETCHES = 2; // Ecowitt throttles bursts; past chunks come from caches anyway
-    const LIVE_TTL_MS = { "5min": 300e3, "30min": 300e3, "4hour": 900e3, "1day": 1800e3 };
+    const LIVE_TTL_MS = { "5min": 60e3, "30min": 300e3, "4hour": 900e3, "1day": 1800e3 };
     const RETRY_MS = [2000, 5000, 12000];
 
     const alignChunk = (level, sec) => Math.floor(sec / LEVELS[level].chunk) * LEVELS[level].chunk;
@@ -418,6 +419,12 @@
         if (c) for (const p of c.points) pts.push(p);
       }
       pts.sort((a, b) => a.ts - b.ts);
+      // Ecowitt publishes each 5-min history point ~10 min late: continue the
+      // line with the live readings taken since then.
+      if (level === "5min" && pts.length) {
+        const last = pts[pts.length - 1].ts;
+        for (const p of liveTail) if (p.ts > last && p.ts <= to + 2 * span) pts.push(p);
+      }
 
       // Break the line across holes (not loaded yet, or station offline). At
       // least 2 h, because 5-min chunks older than ~90 days hold 30-min data.
@@ -1009,12 +1016,13 @@
     }
 
     // Keep the chart live: if the window follows "now", refresh the latest chunk
-    // when it expires and slide the window forward.
-    async function advanceChart() {
+    // when it expires (or redraw when a new live reading came in) and slide the
+    // window forward.
+    async function advanceChart(tailChanged = false) {
       if (!windChart || !followNow || loadingDepth > 0) return;
       const level = currentLevel;
       const live = alignChunk(level, nowSec());
-      if (chunkFresh(level, live)) return;
+      if (chunkFresh(level, live) && !tailChanged) return;
       const seq = viewSeq;
       await requestChunk(level, live, -1);
       if (seq !== viewSeq || level !== currentLevel || !followNow) return;
@@ -1158,7 +1166,10 @@
             `Último ciclo de envio ${ago(data.status.updated_at)}.`;
         }
         renderBackfill(data.backfill);
-        advanceChart();
+        const tail = (data.recent || []).filter((p) => p.ts).sort((a, b) => a.ts - b.ts);
+        const tailChanged = tail.at(-1)?.ts !== liveTail.at(-1)?.ts;
+        liveTail = tail;
+        advanceChart(tailChanged);
       } catch (err) {
         document.getElementById("updated").textContent = "erro ao carregar";
         document.getElementById("liveDot").style.background = "var(--fail)";
