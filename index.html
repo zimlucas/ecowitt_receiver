@@ -230,7 +230,8 @@
       </div>
       <div class="hint">
         Só horas de sol (sol acima do horizonte), dados de 30 em 30 min. Um dia é válido se teve pelo menos
-        1 h seguida com vento médio ≥ mínimo.
+        1 h seguida com vento médio ≥ mínimo. Só entram meses com histórico completo (o mês atual e o primeiro
+        mês da estação, incompletos, ficam de fora).
       </div>
     </section>
 
@@ -1114,7 +1115,16 @@
     const CLIM_SURFACE = "#1a2640"; // panel background, for the gaps between rose sectors
     const clim = { started: false, days: null, months: new Set(), timer: null, rose: null, hour: null, stats: [], counts: [] };
 
-    // Daylight samples grouped by local day (rebuilt when 30-min chunks arrive).
+    // A calendar month counts only when the history covers all of it (not the
+    // station's first, partial month nor the current one); otherwise it would
+    // weigh a few days as if they were the whole month.
+    function fullMonth(year, month) {
+      return new Date(year, month, 1).getTime() / 1000 >= sinceSec
+        && new Date(year, month + 1, 1).getTime() / 1000 <= nowSec();
+    }
+
+    // Daylight samples of full months, grouped by local day (rebuilt when 30-min
+    // chunks arrive).
     function climDays() {
       if (clim.days) return clim.days;
       const byDay = new Map();
@@ -1124,6 +1134,7 @@
         c.clim ??= c.points.filter((p) => p.wind_knots != null && sunElevation(p.ts, station.lat, station.lon) > 0);
         for (const p of c.clim) {
           const d = new Date(p.ts * 1000);
+          if (!fullMonth(d.getFullYear(), d.getMonth())) continue;
           const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           let day = byDay.get(key);
           if (!day) byDay.set(key, (day = { month: d.getMonth(), samples: new Map() }));
