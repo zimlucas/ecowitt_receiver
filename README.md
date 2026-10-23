@@ -12,7 +12,7 @@ no server to keep alive.
 | --- | --- | --- |
 | Scheduled poller | `netlify/functions/poll.mjs` | Runs every 5 min: reads the station, posts to all three services, stores status in Netlify Blobs. |
 | Status API | `netlify/functions/status.mjs` | Serves the latest reading + upload results to the dashboard (`/api/status`). |
-| Dashboard | `index.html` | Static page that polls `/api/status` and shows the monitors. |
+| Dashboard | `index.html`, `js/*.js` | Static page (markup + styles) and its scripts: `data.js` (history loading), `chart.js`, `forecast.js`, `stats.js`, `table.js`, `hist.js`, `main.js` (status polling, start-up). Plain deferred scripts sharing one global scope, no build step. |
 | History API | `netlify/functions/history.mjs` | One chunk of history per request for the chart (`/api/history?level=&chunk=`). |
 | Archiver | `netlify/functions/archive.mjs` | Hourly: saves every 5-min day (and 30-min week) into Blobs before Ecowitt drops it. |
 | Backfill | `netlify/functions/backfill-background.mjs` | Re-posts recent history to Weather Underground (see below). |
@@ -133,8 +133,12 @@ Netlify's current free plan is credit-based: 300 credits/month, and the site is
 **paused** when they run out. Rough budget: compute is 10 credits per GB-hour
 (the 5-min poller is the main consumer, roughly 60 credits/month), web requests
 2 credits per 10k, and **every production deploy costs 15 credits** — test
-locally with `npm run dev` and deploy in batches. The chart is cheap: past
-chunks come from browser/CDN caches without running a function. Check actual
+locally with `npm run dev` and deploy in batches. The page is cheap: past
+chunks and the 30-min bundle come from browser/CDN caches without running a
+function; `/api/status` is read once per 5-min cycle, served to every open
+page from one CDN copy, and not at all while the tab is hidden; the forecast
+comes from Open-Meteo straight to the browser (and its cache). The poller,
+whose state is a single blob, is the main fixed cost. Check actual
 usage under **Usage & billing**.
 
 ## Historical backfill
