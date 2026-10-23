@@ -156,6 +156,7 @@
     .htbl td { padding: 5px 10px; border-bottom: 1px solid rgba(36,49,80,0.6); white-space: nowrap; }
     .htbl tbody tr:hover td { background-color: rgba(255,255,255,0.03); }
     .htbl td.kn { text-align: right; }
+    .htbl td.seq1 { background-color: rgba(138,153,181,0.13); } /* alternate runs of consecutive hours */
     .htbl td .dir-arrow { font-size: 0.85em; margin-right: 3px; }
     .htbl td.na { color: var(--idle); }
     .dual { position: relative; height: 18px; min-width: 92px; margin-top: 4px; }
@@ -296,6 +297,10 @@
       </div>
       <div class="tbl-opts">
         <label class="chk"><input type="checkbox" id="tblSun" checked /> Só horas de sol</label>
+        <label class="clim-slider" title="Só horas dentro de sequências seguidas, desse tamanho ou maiores, que passam em todos os filtros">Sequência mínima
+          <input type="range" id="tblRun" min="1" max="8" step="1" value="1" />
+          <output id="tblRunVal" for="tblRun">1 h</output>
+        </label>
         <button class="btn sm" id="tblReset">Limpar filtros</button>
       </div>
       <div class="tbl-summary" id="tblSummary">—</div>
@@ -314,7 +319,9 @@
         Uma linha por hora (nós). Previsão: o mesmo ponto do gráfico, rodada mais recente; a rajada é a máxima da
         hora anterior. Medido: as leituras de 30 min de hh:30 da hora anterior e hh:00 (média, rajada máxima e direção
         média). Ajuste os controles de cada coluna para filtrar; na direção, mínimo à direita do máximo dá a volta pelo
-        norte (ex.: 330°–30°). Clique no nome da coluna para ordenar. O resumo usa o vento mínimo das estatísticas acima.
+        norte (ex.: 330°–30°). A sequência mínima deixa só as horas que, junto com as vizinhas, passam nos filtros
+        por pelo menos esse número de horas seguidas; o fundo do dia e da hora alterna a cada sequência. Clique no nome
+        da coluna para ordenar. O resumo usa o vento mínimo das estatísticas acima.
       </div>
     </section>
 
@@ -1860,6 +1867,8 @@
         f.loEl.value = c.min; f.hiEl.value = c.max;
         paintSlider(c);
       }
+      document.getElementById("tblRun").value = 1;
+      document.getElementById("tblRunVal").textContent = "1 h";
       tbl.limit = TBL_PAGE;
       renderTable();
     }
@@ -1883,11 +1892,29 @@
     const knCell = (v) => v == null ? `<td class="kn na">—</td>`
       : `<td class="kn" style="background:rgba(74,168,255,${Math.min(0.5, v / 60).toFixed(3)})">${v.toFixed(1)}</td>`;
 
+    // Rows (in time order) that sit in runs of at least `n` consecutive hours.
+    // Each kept row gets its run number, so the table can shade runs alternately.
+    function keepRuns(rows, n) {
+      const out = [];
+      let runs = 0, start = 0;
+      for (let i = 1; i <= rows.length; i++) {
+        if (i < rows.length && rows[i].ts - rows[i - 1].ts === 3600) continue;
+        if (i - start >= n) {
+          runs += 1;
+          for (let j = start; j < i; j++) { rows[j].run = runs; out.push(rows[j]); }
+        }
+        start = i;
+      }
+      return { rows: out, runs };
+    }
+
     function renderTable() {
       if (!tbl.rows || !tbl.built) return;
       const sun = document.getElementById("tblSun").checked;
-      const rows = tbl.rows.filter((r) => (!sun || r.sun) &&
+      const minRun = Number(document.getElementById("tblRun").value);
+      const passing = tbl.rows.filter((r) => (!sun || r.sun) &&
         TBL_COLS.every((c) => passes(c, tbl.filters[c.key], r[c.key])));
+      const { rows, runs } = keepRuns(passing, minRun); // tbl.rows is in time order
       const { key, desc } = tbl.sort;
       rows.sort((a, b) => {
         const x = a[key], y = b[key];
@@ -1898,17 +1925,18 @@
 
       const html = [];
       for (const r of rows.slice(0, tbl.limit)) {
-        html.push(`<tr><td>${WEEKDAYS[r.wd]} ${dayLabel(r.day)}</td><td>${pad2(r.hour)}h</td>`,
+        const seq = `seq${r.run % 2}`;
+        html.push(`<tr><td class="${seq}">${WEEKDAYS[r.wd]} ${dayLabel(r.day)}</td><td class="${seq}">${pad2(r.hour)}h</td>`,
           dirCell(r.fdir), knCell(r.fw), knCell(r.fg), dirCell(r.mdir), knCell(r.mw), knCell(r.mg), `</tr>`);
       }
       document.querySelector("#histTable tbody").innerHTML = html.join("");
       const more = document.getElementById("tblMore");
       more.hidden = rows.length <= tbl.limit;
       more.textContent = `Mostrar mais (${(rows.length - tbl.limit).toLocaleString("pt-BR")} restantes)`;
-      renderTableSummary(rows);
+      renderTableSummary(rows, minRun > 1 ? runs : null);
     }
 
-    function renderTableSummary(rows) {
+    function renderTableSummary(rows, runs) {
       const el = document.getElementById("tblSummary");
       if (!rows.length) { el.innerHTML = "<span>Nenhuma hora com esses filtros.</span>"; return; }
       const min = Number(document.getElementById("climMin").value);
@@ -1920,7 +1948,8 @@
       const strong = rows.filter((r) => r.mw >= min).length;
       const f1 = (v) => v.toFixed(1).replace(".", ",");
       el.innerHTML = [
-        `<b>${rows.length.toLocaleString("pt-BR")}</b> horas em <b>${days.size}</b> dias`,
+        `<b>${rows.length.toLocaleString("pt-BR")}</b> horas em <b>${days.size}</b> dias` +
+          (runs != null ? ` (${runs} sequência${runs === 1 ? "" : "s"})` : ""),
         `medido médio: mediana <b>${f1(quantile(mw, 0.5))}</b> (metade entre ${f1(quantile(mw, 0.25))} e ${f1(quantile(mw, 0.75))})`,
         mg.length ? `rajada medida: mediana <b>${f1(quantile(mg, 0.5))}</b>` : "",
         `médio ≥ ${min} nós em <b>${Math.round((100 * strong) / rows.length)}%</b> das horas`,
@@ -1953,6 +1982,11 @@
     }
 
     document.getElementById("tblSun").addEventListener("change", () => { tbl.limit = TBL_PAGE; renderTable(); });
+    document.getElementById("tblRun").addEventListener("input", (e) => {
+      document.getElementById("tblRunVal").textContent = `${e.target.value} h`;
+      tbl.limit = TBL_PAGE;
+      scheduleTableRender();
+    });
     document.getElementById("tblReset").addEventListener("click", resetFilters);
     document.getElementById("tblMore").addEventListener("click", () => { tbl.limit += TBL_PAGE; renderTable(); });
 
