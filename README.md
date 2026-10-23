@@ -47,7 +47,10 @@ shaded in late afternoon), averaged per period. Night is shaded in the plot.
 Under the measured chart, a second chart with the same layout shows the
 **ECMWF IFS 9 km** forecast for the station (wind and gust at 10 m, cloud
 cover), from Open-Meteo's historical-forecast API: for each hour, the most
-recent model run that covered it. The browser fetches it directly (no key, no
+recent model run that covered it. It uses the nearest **sea** grid point
+(`cell_selection=sea`, ~5 km offshore): the default land point treats the
+beach as rough terrain (weaker mean wind, stronger gusts) while the station's
+strong wind comes from the sea. The browser fetches it directly (no key, no
 function call): the last 10 days first, then the whole history, refreshed
 hourly. Both charts pan/zoom together and share the Y axis; aggregated views
 use mean wind and max gust like the station history. The forecast sky emoji

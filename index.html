@@ -183,7 +183,7 @@
       </div>
       <div class="chart-title">
         <h3>Previsão ECMWF IFS 9 km</h3>
-        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m · Open-Meteo</span>
+        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m<span id="fcWhere"></span> · Open-Meteo</span>
         <span class="busy" id="fcBusy" role="status" hidden><span class="spinner"></span><span id="fcBusyText">carregando previsão…</span></span>
       </div>
       <div class="chart-wrap">
@@ -1175,8 +1175,13 @@
     // last days first so the default view is quick, then the whole history.
     // Refreshed hourly (ECMWF runs four times a day). Aggregated levels average
     // like the station history does: mean wind, max gust.
+    //
+    // The grid point is the nearest sea one: the station sits on the beach and
+    // its strong wind comes from the sea, while the default (land) point treats
+    // it as rough terrain, with a weaker mean wind and stronger gusts.
     const FC_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
     const FC_MODEL = "ecmwf_ifs";
+    const FC_CELL = "sea";
     const FC_VARS = ["wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
       "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high"];
     const FC_RECENT_DAYS = 10;
@@ -1188,15 +1193,23 @@
 
     const isoDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
 
+    function distanceKm(lat1, lon1, lat2, lon2) {
+      const a = Math.sin((lat2 - lat1) * RAD / 2) ** 2 +
+        Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.sin((lon2 - lon1) * RAD / 2) ** 2;
+      return 2 * 6371 * Math.asin(Math.sqrt(a));
+    }
+
     async function fetchForecast(fromSec) {
       const q = new URLSearchParams({
-        latitude: station.lat, longitude: station.lon, models: FC_MODEL,
+        latitude: station.lat, longitude: station.lon, models: FC_MODEL, cell_selection: FC_CELL,
         hourly: FC_VARS.join(","), wind_speed_unit: "kn", timeformat: "unixtime",
         start_date: isoDate(fromSec), end_date: isoDate(nowSec() + DAY),
       });
       const res = await fetch(`${FC_URL}?${q}`);
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.error || !body.hourly) throw new Error(body.reason || `HTTP ${res.status}`);
+      const km = distanceKm(station.lat, station.lon, body.latitude, body.longitude);
+      document.getElementById("fcWhere").textContent = `, ${Math.round(km)} km pra dentro do mar`;
       const h = body.hourly;
       return h.time.map((ts, i) => ({
         ts, wind_knots: h.wind_speed_10m[i], gust_knots: h.wind_gusts_10m[i], dir: h.wind_direction_10m[i],
