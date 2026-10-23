@@ -1724,11 +1724,11 @@
       { key: "day", label: "Dia", kind: "day" },
       { key: "hour", label: "Hora", kind: "hour", min: 0, max: 23, step: 1 },
       { key: "fdir", label: "Direção", kind: "dir", sep: true },
-      { key: "fw", label: "Médio", kind: "kn", min: 0, max: 35, step: 1 },
-      { key: "fg", label: "Rajada", kind: "kn", min: 0, max: 50, step: 1 },
+      { key: "fw", label: "Médio", kind: "kn", fine: [5, 15] },
+      { key: "fg", label: "Rajada", kind: "kn", fine: [10, 25] },
       { key: "mdir", label: "Direção", kind: "dir", sep: true },
-      { key: "mw", label: "Médio", kind: "kn", min: 0, max: 40, step: 1 },
-      { key: "mg", label: "Rajada", kind: "kn", min: 0, max: 60, step: 1 },
+      { key: "mw", label: "Médio", kind: "kn", fine: [5, 15] },
+      { key: "mg", label: "Rajada", kind: "kn", fine: [10, 25] },
     ];
     for (const c of TBL_COLS) if (c.kind === "dir") Object.assign(c, { min: 0, max: 360, step: 5 });
     const tbl = { rows: null, filtered: [], limit: TBL_PAGE, sort: { key: "ts", desc: true }, built: false, timer: null, filters: {} };
@@ -1778,6 +1778,60 @@
     // ---- Range filters ----
     // Moving a slider turns its filter on; the checkbox next to the range
     // switches it off (and back on) without losing the slider positions.
+    //
+    // Sliders move over a list of values (c.values), one per position. Wind
+    // columns step 0.1 kn inside their band of interest (`fine`) and 0.5
+    // outside it, up to the highest value recorded rounded up, so the fine
+    // band gets most of the track.
+    function scaleValues(c, top) {
+      const out = [];
+      if (c.kind !== "kn") {
+        for (let v = c.min; v <= c.max; v += c.step) out.push(v);
+        return out;
+      }
+      const [a, b] = c.fine.map((v) => v * 10);
+      for (let t = 0; t <= top * 10; t += t >= a && t < b ? 1 : 5) out.push(t / 10); // tenths: no float drift
+      return out;
+    }
+
+    // Slider position of a value (the nearest one at or above it).
+    function posOf(c, v) {
+      const i = c.values.findIndex((x) => x >= v - 1e-9);
+      return i < 0 ? c.values.length - 1 : i;
+    }
+
+    // (Re)scale a column; a filter keeps its range, and one open at the top
+    // stays open at the new top.
+    function setScale(c, values) {
+      const f = tbl.filters[c.key];
+      const full = f && fullRange(c, f), open = f && f.hi === c.max;
+      c.values = values;
+      c.min = values[0];
+      c.max = values[values.length - 1];
+      if (!f) return;
+      f.loEl.max = f.hiEl.max = values.length - 1;
+      if (full) { f.lo = c.min; f.hi = c.max; }
+      else {
+        if (open) f.hi = c.max;
+        f.lo = c.values[posOf(c, f.lo)];
+        f.hi = c.values[posOf(c, f.hi)];
+      }
+      f.loEl.value = posOf(c, f.lo);
+      f.hiEl.value = posOf(c, f.hi);
+      paintSlider(c);
+    }
+
+    // Wind columns end at the highest value recorded, rounded up (34.1 -> 35).
+    function updateScales() {
+      for (const c of TBL_COLS) {
+        if (c.kind !== "kn") continue;
+        let top = 0;
+        for (const r of tbl.rows) if (r[c.key] > top) top = r[c.key];
+        top = Math.max(Math.ceil(top), c.fine[1]);
+        if (top !== c.max) setScale(c, scaleValues(c, top));
+      }
+    }
+
     function fullRange(c, f) { return f.lo === c.min && f.hi === c.max; }
     const filterActive = (c, f) => f.enabled && !fullRange(c, f);
 
@@ -1792,15 +1846,16 @@
     function rangeText(c, f) {
       if (fullRange(c, f)) return "todos";
       const one = (v) => c.kind === "day" ? dayLabel(v) : c.kind === "hour" ? `${pad2(v)}h`
-        : c.kind === "dir" ? `${v}° ${compassPt(v)}` : String(v);
-      if (c.kind === "kn" && f.hi === c.max) return `≥ ${f.lo}`;
-      if (c.kind === "kn" && f.lo === c.min) return `≤ ${f.hi}`;
+        : c.kind === "dir" ? `${v}° ${compassPt(v)}` : Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ",");
+      if (c.kind === "kn" && f.hi === c.max) return `≥ ${one(f.lo)}`;
+      if (c.kind === "kn" && f.lo === c.min) return `≤ ${one(f.hi)}`;
       return `${one(f.lo)} – ${one(f.hi)}`;
     }
 
     function paintSlider(c) {
       const f = tbl.filters[c.key];
-      const pct = (v) => ((v - c.min) / (c.max - c.min)) * 100;
+      const last = c.values.length - 1;
+      const pct = (v) => (posOf(c, v) / last) * 100;
       const a = pct(Math.min(f.lo, f.hi)), b = pct(Math.max(f.lo, f.hi));
       const full = fullRange(c, f), active = filterActive(c, f);
       const on = active || full ? "var(--accent)" : "var(--idle)", off = "var(--line)";
@@ -1813,13 +1868,14 @@
       f.val.classList.toggle("on", active);
       f.val.classList.toggle("off", !active && !full);
       // The upper thumb stays grabbable when both sit at the right end.
-      f.loEl.style.zIndex = f.lo > (c.min + c.max) / 2 ? 3 : 2;
+      f.loEl.style.zIndex = posOf(c, f.lo) > last / 2 ? 3 : 2;
     }
 
     function buildTableHead() {
       const today = dayNumber(new Date(nowSec() * 1000));
       const first = dayNumber(new Date((sinceSec + 12 * 3600) * 1000));
       Object.assign(TBL_COLS[0], { min: first, max: today, step: 1 });
+      for (const c of TBL_COLS) setScale(c, scaleValues(c, c.fine ? c.fine[1] : null));
       const cols = document.querySelector("#histTable tr.cols");
       const filters = document.querySelector("#histTable tr.filters");
       for (const c of TBL_COLS) {
@@ -1847,11 +1903,11 @@
         track.className = "dual-track";
         const mk = (v, label) => {
           const i = document.createElement("input");
-          Object.assign(i, { type: "range", min: c.min, max: c.max, step: c.step, value: v });
+          Object.assign(i, { type: "range", min: 0, max: c.values.length - 1, step: 1, value: v });
           i.setAttribute("aria-label", `${label} ${c.label}`);
           return i;
         };
-        const loEl = mk(c.min, "mínimo"), hiEl = mk(c.max, "máximo");
+        const loEl = mk(0, "mínimo"), hiEl = mk(c.values.length - 1, "máximo");
         dual.append(track, loEl, hiEl);
         fth.append(val, dual);
         filters.appendChild(fth);
@@ -1862,13 +1918,13 @@
           scheduleTableRender();
         };
         const onInput = (which) => {
-          let lo = Number(loEl.value), hi = Number(hiEl.value);
+          let lo = Number(loEl.value), hi = Number(hiEl.value); // positions
           // Only direction ranges may cross (they wrap through north).
           if (c.kind !== "dir" && lo > hi) {
             if (which === "lo") lo = hi; else hi = lo;
             loEl.value = lo; hiEl.value = hi;
           }
-          f.lo = lo; f.hi = hi;
+          f.lo = c.values[lo]; f.hi = c.values[hi];
           f.enabled = true;
           changed();
         };
@@ -1885,7 +1941,7 @@
       for (const c of TBL_COLS) {
         const f = tbl.filters[c.key];
         f.lo = c.min; f.hi = c.max; f.enabled = false;
-        f.loEl.value = c.min; f.hiEl.value = c.max;
+        f.loEl.value = 0; f.hiEl.value = c.values.length - 1;
         paintSlider(c);
       }
       document.getElementById("tblRun").value = 1;
@@ -1992,6 +2048,7 @@
         tbl.timer = null;
         if (!tbl.built) buildTableHead();
         tblBuildRows();
+        updateScales();
         renderTable();
         const starts = chunkStarts("30min", sinceSec, nowSec());
         const loaded = starts.filter((s) => chunks["30min"].has(s)).length;
