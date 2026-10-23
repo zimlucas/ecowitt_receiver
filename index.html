@@ -455,6 +455,7 @@
     let viewSeq = 0; // the latest user action wins; slower, older loads are dropped
     let dirByTs = new Map();
     let liveTail = []; // live readings from /api/status, newer than the history so far
+    const LIVE_GAP_SEC = 240; // min. distance from the last history point to a live reading shown after it
 
     const nowSec = () => Math.floor(Date.now() / 1000) + clockOffset;
 
@@ -627,10 +628,12 @@
       }
       pts.sort((a, b) => a.ts - b.ts);
       // Ecowitt publishes each 5-min history point ~10 min late: continue the
-      // line with the live readings taken since then.
+      // line with the live readings taken since then. A live reading less
+      // than 4 min after the last history point would overlap it, so the tail
+      // starts after that.
       if (level === "5min" && pts.length) {
         const last = pts[pts.length - 1].ts;
-        for (const p of liveTail) if (p.ts > last && p.ts <= to + 2 * span) pts.push(p);
+        for (const p of liveTail) if (p.ts >= last + LIVE_GAP_SEC && p.ts <= to + 2 * span) pts.push(p);
       }
 
       // Break the line across holes (not loaded yet, or station offline). At
