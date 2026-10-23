@@ -417,8 +417,9 @@
       if (window.Chart && zp && !Chart.registry.plugins.get("zoom")) Chart.register(zp.default || zp);
     } catch (e) {}
 
-    async function getStatus() {
-      const res = await fetch(API, { cache: "no-store" });
+    // `fresh` skips the CDN's copy (see netlify/functions/status.mjs).
+    async function getStatus(fresh = false) {
+      const res = await fetch(fresh ? `${API}?fresh=${Date.now()}` : API, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     }
@@ -474,7 +475,10 @@
     const queue = [];
     let activeFetches = 0;
     const MAX_FETCHES = 2; // Ecowitt throttles bursts; past chunks come from caches anyway
-    const LIVE_TTL_MS = { "5min": 60e3, "30min": 300e3, "4hour": 900e3, "1day": 1800e3 };
+    // How long a still-growing chunk is reused. Ecowitt publishes 5-min points
+    // ~10 min late and the chart's edge comes from the live readings, so
+    // re-reading today's 5-min chunk more often than every 5 min gains nothing.
+    const LIVE_TTL_MS = { "5min": 300e3, "30min": 300e3, "4hour": 900e3, "1day": 1800e3 };
     const RETRY_MS = [2000, 5000, 12000];
 
     const alignChunk = (level, sec) => Math.floor(sec / LEVELS[level].chunk) * LEVELS[level].chunk;
@@ -2549,7 +2553,7 @@
       btn.disabled = true;
       btn.textContent = "Iniciando…";
       try { await fetch("/.netlify/functions/backfill-background?days=2", { method: "POST" }); } catch (e) {}
-      setTimeout(() => { btn.textContent = original; btn.disabled = false; refresh(); }, 5000);
+      setTimeout(() => { btn.textContent = original; btn.disabled = false; refresh(true); }, 5000);
     }
 
     const fmt = (v, digits = 1) =>
@@ -2615,63 +2619,102 @@
       });
     }
 
-    async function refresh() {
+    // ---- Status polling ----
+    // The status only changes when the poller runs (every 5 min, UTC), and the
+    // CDN keeps it until just after the next run. So the page asks again right
+    // after that run, every 20 s while the current run hasn't landed yet,
+    // every 5 s (skipping the CDN copy) while a backfill runs, and not at all
+    // while the tab is hidden. In between, a local timer keeps the "há X min"
+    // texts current without asking.
+    const STATUS_SETTLE_MS = 25e3; // after the next cycle mark (the CDN copy lives until +20 s)
+    const STATUS_RETRY_MS = 20e3;
+    const BACKFILL_POLL_MS = 5e3;
+    let statusTimer = null;
+    let lastStatus = null;
+
+    function nextStatusDelay(data) {
+      if (data.backfill?.running) return BACKFILL_POLL_MS;
+      const cycle = (data.cycle_sec || 300) * 1000;
+      const now = Date.now() + clockOffset * 1000;
+      const mark = Math.floor(now / cycle) * cycle;
+      const at = data.latest?.at ? Date.parse(data.latest.at) : 0;
+      if (at < mark) return STATUS_RETRY_MS; // this cycle's run hasn't landed yet
+      return mark + cycle + STATUS_SETTLE_MS - now;
+    }
+
+    function scheduleStatus(delay) {
+      clearTimeout(statusTimer);
+      statusTimer = document.hidden ? null : setTimeout(refresh, Math.max(1000, delay));
+    }
+
+    async function refresh(fresh = false) {
       try {
-        const data = await getStatus();
-
-        if (data.station) {
-          document.getElementById("stationName").textContent = data.station.name || "Estação Meteorológica";
-          if (data.station.lat != null && data.station.lon != null) {
-            document.getElementById("coords").textContent =
-              `${Number(data.station.lat).toFixed(5)}, ${Number(data.station.lon).toFixed(5)}`;
-          }
-        }
-
-        const liveIso = data.latest?.at || data.status?.updated_at;
-        document.getElementById("updated").textContent = `Atualizado ${ago(liveIso)}`;
-        const stale = liveIso ? (Date.now() - new Date(liveIso).getTime()) > 7 * 60 * 1000 : true;
-        document.getElementById("liveDot").style.background = stale ? "var(--fail)" : "var(--ok)";
-
-        const banner = document.getElementById("banner");
-        if (!data.latest && !data.status) {
-          banner.style.display = "block";
-          banner.innerHTML =
-            "Ainda não há dados. A função agendada roda a cada 5 minutos e o primeiro envio acontece poucos minutos após o deploy. " +
-            "Em <em>Deploy Previews</em> as funções agendadas não rodam — publique o deploy de produção.";
-        } else {
-          banner.style.display = "none";
-        }
-
-        setConditions(data.latest?.display || data.status?.weather);
-
-        const posts = data.status?.posts || {};
-        setMonitor("windy", posts.windy, data.log);
-        setMonitor("wunderground", posts.wunderground, data.log);
-        setMonitor("windguru", posts.windguru, data.log);
-
-        if (data.status) {
-          document.getElementById("cycleNote").textContent =
-            `Último ciclo de envio ${ago(data.status.updated_at)}.`;
-        }
-        renderBackfill(data.backfill);
-        const tail = (data.recent || []).filter((p) => p.ts).sort((a, b) => a.ts - b.ts);
-        const tailChanged = tail.at(-1)?.ts !== liveTail.at(-1)?.ts;
-        liveTail = tail;
-        advanceChart(tailChanged);
+        const data = await getStatus(fresh || !!lastStatus?.backfill?.running);
+        lastStatus = data;
+        renderStatus(data);
+        scheduleStatus(nextStatusDelay(data));
       } catch (err) {
         document.getElementById("updated").textContent = "erro ao carregar";
         document.getElementById("liveDot").style.background = "var(--fail)";
+        scheduleStatus(STATUS_RETRY_MS);
       }
+    }
+
+    function renderStatus(data) {
+      if (data.station) {
+        document.getElementById("stationName").textContent = data.station.name || "Estação Meteorológica";
+        if (data.station.lat != null && data.station.lon != null) {
+          document.getElementById("coords").textContent =
+            `${Number(data.station.lat).toFixed(5)}, ${Number(data.station.lon).toFixed(5)}`;
+        }
+      }
+
+      const liveIso = data.latest?.at || data.status?.updated_at;
+      document.getElementById("updated").textContent = `Atualizado ${ago(liveIso)}`;
+      const stale = liveIso ? (Date.now() - new Date(liveIso).getTime()) > 7 * 60 * 1000 : true;
+      document.getElementById("liveDot").style.background = stale ? "var(--fail)" : "var(--ok)";
+
+      const banner = document.getElementById("banner");
+      if (!data.latest && !data.status) {
+        banner.style.display = "block";
+        banner.innerHTML =
+          "Ainda não há dados. A função agendada roda a cada 5 minutos e o primeiro envio acontece poucos minutos após o deploy. " +
+          "Em <em>Deploy Previews</em> as funções agendadas não rodam — publique o deploy de produção.";
+      } else {
+        banner.style.display = "none";
+      }
+
+      setConditions(data.latest?.display || data.status?.weather);
+
+      const posts = data.status?.posts || {};
+      setMonitor("windy", posts.windy, data.log);
+      setMonitor("wunderground", posts.wunderground, data.log);
+      setMonitor("windguru", posts.windguru, data.log);
+
+      if (data.status) {
+        document.getElementById("cycleNote").textContent =
+          `Último ciclo de envio ${ago(data.status.updated_at)}.`;
+      }
+      renderBackfill(data.backfill);
+      const tail = (data.recent || []).filter((p) => p.ts).sort((a, b) => a.ts - b.ts);
+      const tailChanged = tail.at(-1)?.ts !== liveTail.at(-1)?.ts;
+      liveTail = tail;
+      advanceChart(tailChanged);
     }
 
     document.getElementById("bfBtn").addEventListener("click", runBackfill);
     document.getElementById("zoomWord").addEventListener("click", toggleRefMode);
     document.querySelectorAll("[data-range]").forEach((b) =>
       b.addEventListener("click", () => selectView(b.dataset.range)));
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) scheduleStatus(0); // clears the timer
+      else refresh();
+    });
 
     refresh();
     selectView("24h");
-    setInterval(refresh, 30000);
+    // "há X min" texts and the chart's right edge move on between status reads.
+    setInterval(() => { if (lastStatus && !document.hidden) renderStatus(lastStatus); }, 30000);
   </script>
 </body>
 </html>
