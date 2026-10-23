@@ -55,7 +55,16 @@ function call): the last 10 days first, then the whole history, refreshed
 hourly. Both charts pan/zoom together and share the Y axis; aggregated views
 use mean wind and max gust like the station history. The forecast sky emoji
 come from cloud cover (< 20% open, < 50% few clouds, < 80% broken, otherwise
-overcast; heavy overcast when low clouds ≥ 80%).
+overcast; heavy overcast when low clouds ≥ 80%). A link opens Windy's
+forecast for the same grid point.
+
+At the bottom, an hour-by-hour table puts the forecast (direction, mean,
+gust) next to what the station measured in that hour, for the whole history.
+Each column has a min/max range filter (direction ranges may wrap through
+north), with an optional daylight-only filter; a summary shows how the
+measured wind turned out for the hours left, e.g. "forecast 11 kn mean / 17 kn
+gust from SE: what did the station get?". Built in the browser from the same
+data as the statistics and the forecast chart.
 
 ## Run locally (test before deploying)
 

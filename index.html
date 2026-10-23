@@ -137,6 +137,48 @@
     .swatch.band90 { width: 14px; height: 10px; border-radius: 3px; background: rgba(74,168,255,0.18); }
     .swatch.band75 { width: 14px; height: 10px; border-radius: 3px; background: rgba(74,168,255,0.38); }
     .swatch.thr { background: none; border-top: 2px dashed #ffae57; height: 0; }
+
+    .tbl-opts { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; margin-top: 12px; font-size: 0.85rem; }
+    .chk { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+    .chk input { accent-color: var(--accent); width: 15px; height: 15px; }
+    .tbl-summary { color: var(--muted); font-size: 0.82rem; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+    .tbl-summary b { color: var(--text); font-weight: 650; }
+    .tbl-wrap { margin-top: 10px; max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+    .htbl { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 860px; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+    .htbl thead th { position: sticky; background: var(--card-2); z-index: 1; font-weight: 600; text-align: left; padding: 6px 10px; }
+    .htbl thead tr.grp th { top: 0; height: 28px; color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .htbl thead tr.cols th { top: 28px; height: 30px; }
+    .htbl thead tr.filters th { top: 58px; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-weight: 400; }
+    .htbl thead tr.grp th.sep, .htbl td.sep, .htbl thead tr.cols th.sep, .htbl thead tr.filters th.sep { border-left: 1px solid var(--line); }
+    .htbl .sort { background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
+    .htbl .sort:hover { color: var(--accent); }
+    .htbl .sort .ar { color: var(--accent); margin-left: 4px; }
+    .htbl td { padding: 5px 10px; border-bottom: 1px solid rgba(36,49,80,0.6); white-space: nowrap; }
+    .htbl tbody tr:hover td { background-color: rgba(255,255,255,0.03); }
+    .htbl td.kn { text-align: right; }
+    .htbl td .dir-arrow { font-size: 0.85em; margin-right: 3px; }
+    .htbl td.na { color: var(--idle); }
+    .dual { position: relative; height: 18px; min-width: 92px; margin-top: 4px; }
+    .dual-track { position: absolute; left: 6px; right: 6px; top: 8px; height: 3px; border-radius: 2px; background: var(--line); }
+    .dual input {
+      position: absolute; left: 0; top: 2px; width: 100%; height: 14px; margin: 0;
+      -webkit-appearance: none; appearance: none; background: none; pointer-events: none;
+    }
+    .dual input::-webkit-slider-runnable-track { background: none; }
+    .dual input::-webkit-slider-thumb {
+      -webkit-appearance: none; pointer-events: auto; cursor: pointer;
+      width: 13px; height: 13px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent);
+    }
+    .dual input::-moz-range-track { background: none; }
+    .dual input::-moz-range-thumb {
+      pointer-events: auto; cursor: pointer;
+      width: 9px; height: 9px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent);
+    }
+    .dual input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .dual-val { color: var(--muted); font-size: 0.74rem; white-space: nowrap; min-height: 1.2em; }
+    .dual-val.on { color: var(--accent); font-weight: 650; }
+    .tbl-more { display: flex; justify-content: center; margin-top: 10px; }
+    .tbl-more[hidden], .tbl-more .btn[hidden] { display: none; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
@@ -183,7 +225,7 @@
       </div>
       <div class="chart-title">
         <h3>Previsão ECMWF IFS 9 km</h3>
-        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m<span id="fcWhere"></span> · Open-Meteo</span>
+        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m<span id="fcWhere"></span> · Open-Meteo<span id="fcWindyWrap" hidden> · <a id="fcWindy" target="_blank" rel="noopener" title="Previsão do Windy neste ponto de grade">Windy</a></span></span>
         <span class="busy" id="fcBusy" role="status" hidden><span class="spinner"></span><span id="fcBusyText">carregando previsão…</span></span>
       </div>
       <div class="chart-wrap">
@@ -244,6 +286,35 @@
         Só horas de sol (sol acima do horizonte), dados de 30 em 30 min. Um dia é válido se teve pelo menos
         1 h seguida com vento médio ≥ mínimo. Só entram meses com histórico completo (o mês atual e o primeiro
         mês da estação, incompletos, ficam de fora).
+      </div>
+    </section>
+
+    <section class="chart-card" style="margin-top:18px">
+      <div class="chart-head">
+        <h2 style="margin:0">Histórico hora a hora: previsão × medido</h2>
+        <span class="busy" id="tblBusy" role="status" hidden><span class="spinner"></span><span id="tblBusyText">carregando…</span></span>
+      </div>
+      <div class="tbl-opts">
+        <label class="chk"><input type="checkbox" id="tblSun" checked /> Só horas de sol</label>
+        <button class="btn sm" id="tblReset">Limpar filtros</button>
+      </div>
+      <div class="tbl-summary" id="tblSummary">—</div>
+      <div class="tbl-wrap">
+        <table class="htbl" id="histTable">
+          <thead>
+            <tr class="grp"><th colspan="2"></th><th colspan="3" class="sep">Previsão ECMWF</th><th colspan="3" class="sep">Medido</th></tr>
+            <tr class="cols"></tr>
+            <tr class="filters"></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="tbl-more"><button class="btn sm" id="tblMore" hidden>Mostrar mais</button></div>
+      <div class="hint">
+        Uma linha por hora (nós). Previsão: o mesmo ponto do gráfico, rodada mais recente; a rajada é a máxima da
+        hora anterior. Medido: as leituras de 30 min de hh:30 da hora anterior e hh:00 (média, rajada máxima e direção
+        média). Ajuste os controles de cada coluna para filtrar; na direção, mínimo à direita do máximo dá a volta pelo
+        norte (ex.: 330°–30°). Clique no nome da coluna para ordenar. O resumo usa o vento mínimo das estatísticas acima.
       </div>
     </section>
 
@@ -447,6 +518,7 @@
         sky.envelopes.clear();
         clim.days = null;
         scheduleClimate();
+        scheduleTable();
       }
       if (!windChart) return;
       if (level === currentLevel) {
@@ -1210,6 +1282,9 @@
       if (!res.ok || body.error || !body.hourly) throw new Error(body.reason || `HTTP ${res.status}`);
       const km = distanceKm(station.lat, station.lon, body.latitude, body.longitude);
       document.getElementById("fcWhere").textContent = `, ${Math.round(km)} km pra dentro do mar`;
+      const lat = body.latitude.toFixed(3), lon = body.longitude.toFixed(3);
+      document.getElementById("fcWindy").href = `https://www.windy.com/${lat}/${lon}?${lat},${lon},11`;
+      document.getElementById("fcWindyWrap").hidden = false;
       const h = body.hourly;
       return h.time.map((ts, i) => ({
         ts, wind_knots: h.wind_speed_10m[i], gust_knots: h.wind_gusts_10m[i], dir: h.wind_direction_10m[i],
@@ -1221,6 +1296,7 @@
       for (const p of points) fc.byTs.set(p.ts, p);
       fc.hours = [...fc.byTs.values()].sort((a, b) => a.ts - b.ts);
       if (windChart) rebuildData();
+      scheduleTable();
     }
 
     function setFcBusy(text) {
@@ -1237,6 +1313,7 @@
           setFcBusy("carregando histórico da previsão…");
           mergeForecast(await fetchForecast(sinceSec));
           fc.full = true;
+          scheduleTable();
         }
         setFcBusy(null);
         fc.timer = setTimeout(loadForecast, FC_REFRESH_MS);
@@ -1620,7 +1697,264 @@
     document.getElementById("climMin").addEventListener("input", (e) => {
       document.getElementById("climMinVal").textContent = `${e.target.value} nós`;
       renderClimate();
+      renderTable();
     });
+
+    // ---- Hour-by-hour table: forecast vs measured ----
+    // One row per forecast hour that has a measurement: the forecast at hh:00
+    // next to the station's 30-min readings of hh-1:30 and hh:00 (the hour the
+    // forecast gust covers). Built from the same 30-min chunks as the
+    // statistics and the forecast already loaded for the chart. Each column has
+    // a min/max range filter; the summary describes the measured wind of the
+    // rows left, which answers "when the forecast looked like this, what did
+    // the station get?".
+    const TBL_PAGE = 200;
+    const TBL_COLS = [
+      { key: "day", label: "Dia", kind: "day" },
+      { key: "hour", label: "Hora", kind: "hour", min: 0, max: 23, step: 1 },
+      { key: "fdir", label: "Direção", kind: "dir", sep: true },
+      { key: "fw", label: "Médio", kind: "kn", min: 0, max: 35, step: 1 },
+      { key: "fg", label: "Rajada", kind: "kn", min: 0, max: 50, step: 1 },
+      { key: "mdir", label: "Direção", kind: "dir", sep: true },
+      { key: "mw", label: "Médio", kind: "kn", min: 0, max: 40, step: 1 },
+      { key: "mg", label: "Rajada", kind: "kn", min: 0, max: 60, step: 1 },
+    ];
+    for (const c of TBL_COLS) if (c.kind === "dir") Object.assign(c, { min: 0, max: 360, step: 5 });
+    const tbl = { rows: null, filtered: [], limit: TBL_PAGE, sort: { key: "ts", desc: true }, built: false, timer: null, filters: {} };
+
+    const dayLabel = (dn) => { const d = new Date(dn * 864e5); return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)}/${String(d.getUTCFullYear()).slice(2)}`; };
+    const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+    function vectorMean(samples) {
+      let u = 0, v = 0;
+      for (const s of samples) {
+        if (s.dir == null) continue;
+        u += s.wind_knots * Math.sin(s.dir * RAD);
+        v += s.wind_knots * Math.cos(s.dir * RAD);
+      }
+      return u || v ? (Math.atan2(u, v) / RAD + 360) % 360 : null;
+    }
+
+    function tblBuildRows() {
+      const pts = new Map(); // ts -> point (chunk edges repeat a point)
+      for (const s of chunkStarts("30min", sinceSec, nowSec())) {
+        const c = chunks["30min"].get(s);
+        if (c) for (const p of c.points) if (p.wind_knots != null) pts.set(p.ts, p);
+      }
+      const byHour = new Map();
+      for (const p of pts.values()) {
+        const h = Math.ceil(p.ts / 3600) * 3600; // hh:30 -> next hour, hh:00 -> itself
+        if (!byHour.has(h)) byHour.set(h, []);
+        byHour.get(h).push(p);
+      }
+      const rows = [];
+      for (const f of fc.hours) {
+        const m = byHour.get(f.ts);
+        if (!m || f.ts > nowSec()) continue;
+        const d = new Date(f.ts * 1000);
+        const gusts = m.map((p) => p.gust_knots).filter((g) => g != null);
+        rows.push({
+          ts: f.ts, day: dayNumber(d), hour: d.getHours(), wd: d.getDay(),
+          sun: sunElevation(f.ts - 900, station.lat, station.lon) > 0,
+          fdir: f.dir, fw: f.wind_knots, fg: f.gust_knots,
+          mdir: vectorMean(m), mw: m.reduce((a, p) => a + p.wind_knots, 0) / m.length,
+          mg: gusts.length ? Math.max(...gusts) : null,
+        });
+      }
+      tbl.rows = rows;
+    }
+
+    // ---- Range filters ----
+    function fullRange(c, f) { return f.lo === c.min && f.hi === c.max; }
+
+    function passes(c, f, v) {
+      if (fullRange(c, f)) return true;
+      if (v == null) return false;
+      if (c.kind === "dir" && f.lo > f.hi) return v >= f.lo || v <= f.hi; // wraps through north
+      if (c.kind === "kn") return v >= f.lo && (f.hi === c.max || v <= f.hi); // top = no upper limit
+      return v >= f.lo && v <= f.hi;
+    }
+
+    function rangeText(c, f) {
+      if (fullRange(c, f)) return "todos";
+      const one = (v) => c.kind === "day" ? dayLabel(v) : c.kind === "hour" ? `${pad2(v)}h`
+        : c.kind === "dir" ? `${v}° ${compassPt(v)}` : String(v);
+      if (c.kind === "kn" && f.hi === c.max) return `≥ ${f.lo}`;
+      if (c.kind === "kn" && f.lo === c.min) return `≤ ${f.hi}`;
+      return `${one(f.lo)} – ${one(f.hi)}`;
+    }
+
+    function paintSlider(c) {
+      const f = tbl.filters[c.key];
+      const pct = (v) => ((v - c.min) / (c.max - c.min)) * 100;
+      const a = pct(Math.min(f.lo, f.hi)), b = pct(Math.max(f.lo, f.hi));
+      const on = "var(--accent)", off = "var(--line)";
+      f.track.style.background = c.kind === "dir" && f.lo > f.hi
+        ? `linear-gradient(to right, ${on} 0 ${a}%, ${off} ${a}% ${b}%, ${on} ${b}% 100%)`
+        : `linear-gradient(to right, ${off} 0 ${a}%, ${on} ${a}% ${b}%, ${off} ${b}% 100%)`;
+      f.val.textContent = rangeText(c, f);
+      f.val.classList.toggle("on", !fullRange(c, f));
+      // The upper thumb stays grabbable when both sit at the right end.
+      f.loEl.style.zIndex = f.lo > (c.min + c.max) / 2 ? 3 : 2;
+    }
+
+    function buildTableHead() {
+      const today = dayNumber(new Date(nowSec() * 1000));
+      const first = dayNumber(new Date((sinceSec + 12 * 3600) * 1000));
+      Object.assign(TBL_COLS[0], { min: first, max: today, step: 1 });
+      const cols = document.querySelector("#histTable tr.cols");
+      const filters = document.querySelector("#histTable tr.filters");
+      for (const c of TBL_COLS) {
+        const th = document.createElement("th");
+        if (c.sep) th.className = "sep";
+        const b = document.createElement("button");
+        b.className = "sort";
+        b.dataset.key = c.key === "day" ? "ts" : c.key;
+        b.addEventListener("click", () => setSort(b.dataset.key));
+        th.appendChild(b);
+        cols.appendChild(th);
+
+        const fth = document.createElement("th");
+        if (c.sep) fth.className = "sep";
+        const val = document.createElement("div");
+        val.className = "dual-val";
+        const dual = document.createElement("div");
+        dual.className = "dual";
+        const track = document.createElement("div");
+        track.className = "dual-track";
+        const mk = (v, label) => {
+          const i = document.createElement("input");
+          Object.assign(i, { type: "range", min: c.min, max: c.max, step: c.step, value: v });
+          i.setAttribute("aria-label", `${label} ${c.label}`);
+          return i;
+        };
+        const loEl = mk(c.min, "mínimo"), hiEl = mk(c.max, "máximo");
+        dual.append(track, loEl, hiEl);
+        fth.append(val, dual);
+        filters.appendChild(fth);
+        const f = (tbl.filters[c.key] = { lo: c.min, hi: c.max, loEl, hiEl, track, val });
+        const onInput = (which) => {
+          let lo = Number(loEl.value), hi = Number(hiEl.value);
+          // Only direction ranges may cross (they wrap through north).
+          if (c.kind !== "dir" && lo > hi) {
+            if (which === "lo") lo = hi; else hi = lo;
+            loEl.value = lo; hiEl.value = hi;
+          }
+          f.lo = lo; f.hi = hi;
+          paintSlider(c);
+          tbl.limit = TBL_PAGE;
+          scheduleTableRender();
+        };
+        loEl.addEventListener("input", () => onInput("lo"));
+        hiEl.addEventListener("input", () => onInput("hi"));
+        paintSlider(c);
+      }
+      updateSortLabels();
+      tbl.built = true;
+    }
+
+    function resetFilters() {
+      for (const c of TBL_COLS) {
+        const f = tbl.filters[c.key];
+        f.lo = c.min; f.hi = c.max;
+        f.loEl.value = c.min; f.hiEl.value = c.max;
+        paintSlider(c);
+      }
+      tbl.limit = TBL_PAGE;
+      renderTable();
+    }
+
+    function setSort(key) {
+      tbl.sort = tbl.sort.key === key ? { key, desc: !tbl.sort.desc } : { key, desc: key === "ts" };
+      updateSortLabels();
+      renderTable();
+    }
+
+    function updateSortLabels() {
+      document.querySelectorAll("#histTable .sort").forEach((b, i) => {
+        const on = b.dataset.key === tbl.sort.key;
+        b.innerHTML = `${TBL_COLS[i].label}${on ? `<span class="ar">${tbl.sort.desc ? "↓" : "↑"}</span>` : ""}`;
+      });
+    }
+
+    // ---- Render ----
+    const dirCell = (v) => v == null ? `<td class="sep na">—</td>`
+      : `<td class="sep"><span class="dir-arrow" style="transform:rotate(${(Math.round(v) + 180) % 360}deg)">↑</span>${Math.round(v)}° ${compassPt(v)}</td>`;
+    const knCell = (v) => v == null ? `<td class="kn na">—</td>`
+      : `<td class="kn" style="background:rgba(74,168,255,${Math.min(0.5, v / 60).toFixed(3)})">${v.toFixed(1)}</td>`;
+
+    function renderTable() {
+      if (!tbl.rows || !tbl.built) return;
+      const sun = document.getElementById("tblSun").checked;
+      const rows = tbl.rows.filter((r) => (!sun || r.sun) &&
+        TBL_COLS.every((c) => passes(c, tbl.filters[c.key], r[c.key])));
+      const { key, desc } = tbl.sort;
+      rows.sort((a, b) => {
+        const x = a[key], y = b[key];
+        if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1; // blanks last
+        return desc ? y - x : x - y;
+      });
+      tbl.filtered = rows;
+
+      const html = [];
+      for (const r of rows.slice(0, tbl.limit)) {
+        html.push(`<tr><td>${WEEKDAYS[r.wd]} ${dayLabel(r.day)}</td><td>${pad2(r.hour)}h</td>`,
+          dirCell(r.fdir), knCell(r.fw), knCell(r.fg), dirCell(r.mdir), knCell(r.mw), knCell(r.mg), `</tr>`);
+      }
+      document.querySelector("#histTable tbody").innerHTML = html.join("");
+      const more = document.getElementById("tblMore");
+      more.hidden = rows.length <= tbl.limit;
+      more.textContent = `Mostrar mais (${(rows.length - tbl.limit).toLocaleString("pt-BR")} restantes)`;
+      renderTableSummary(rows);
+    }
+
+    function renderTableSummary(rows) {
+      const el = document.getElementById("tblSummary");
+      if (!rows.length) { el.innerHTML = "<span>Nenhuma hora com esses filtros.</span>"; return; }
+      const min = Number(document.getElementById("climMin").value);
+      const mw = rows.map((r) => r.mw).sort((a, b) => a - b);
+      const mg = rows.map((r) => r.mg).filter((v) => v != null).sort((a, b) => a - b);
+      const days = new Map();
+      for (const r of rows) days.set(r.day, (days.get(r.day) || false) || r.mw >= min);
+      const goodDays = [...days.values()].filter(Boolean).length;
+      const strong = rows.filter((r) => r.mw >= min).length;
+      const f1 = (v) => v.toFixed(1).replace(".", ",");
+      el.innerHTML = [
+        `<b>${rows.length.toLocaleString("pt-BR")}</b> horas em <b>${days.size}</b> dias`,
+        `medido médio: mediana <b>${f1(quantile(mw, 0.5))}</b> (metade entre ${f1(quantile(mw, 0.25))} e ${f1(quantile(mw, 0.75))})`,
+        mg.length ? `rajada medida: mediana <b>${f1(quantile(mg, 0.5))}</b>` : "",
+        `médio ≥ ${min} nós em <b>${Math.round((100 * strong) / rows.length)}%</b> das horas`,
+        `dias com alguma dessas horas ≥ ${min}: <b>${goodDays}</b> de ${days.size}`,
+      ].filter(Boolean).map((s) => `<span>${s}</span>`).join("");
+    }
+
+    let tblFrame = 0;
+    function scheduleTableRender() {
+      if (tblFrame) return;
+      tblFrame = requestAnimationFrame(() => { tblFrame = 0; renderTable(); });
+    }
+
+    // Data arrives in pieces (30-min weeks, newest first; the forecast in two
+    // requests): rebuild the rows at most every 400 ms.
+    function scheduleTable() {
+      if (tbl.timer || !station || !sinceSec) return;
+      tbl.timer = setTimeout(() => {
+        tbl.timer = null;
+        if (!tbl.built) buildTableHead();
+        tblBuildRows();
+        renderTable();
+        const starts = chunkStarts("30min", sinceSec, nowSec());
+        const loaded = starts.filter((s) => chunks["30min"].has(s)).length;
+        const busy = loaded < starts.length || !fc.full;
+        document.getElementById("tblBusy").hidden = !busy;
+        document.getElementById("tblBusyText").textContent = loaded < starts.length
+          ? `carregando histórico ${loaded}/${starts.length} semanas…` : "carregando previsão…";
+      }, 400);
+    }
+
+    document.getElementById("tblSun").addEventListener("change", () => { tbl.limit = TBL_PAGE; renderTable(); });
+    document.getElementById("tblReset").addEventListener("click", resetFilters);
+    document.getElementById("tblMore").addEventListener("click", () => { tbl.limit += TBL_PAGE; renderTable(); });
 
     // ---- Backfill ----
     function renderBackfill(bf) {
