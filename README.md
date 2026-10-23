@@ -44,6 +44,16 @@ irradiance: measured vs. clear-sky irradiance for the sun position, scaled per
 hour by the station's own best values of the previous 3 weeks (it is partly
 shaded in late afternoon), averaged per period. Night is shaded in the plot.
 
+Under the measured chart, a second chart with the same layout shows the
+**ECMWF IFS 9 km** forecast for the station (wind and gust at 10 m, cloud
+cover), from Open-Meteo's historical-forecast API: for each hour, the most
+recent model run that covered it. The browser fetches it directly (no key, no
+function call): the last 10 days first, then the whole history, refreshed
+hourly. Both charts pan/zoom together and share the Y axis; aggregated views
+use mean wind and max gust like the station history. The forecast sky emoji
+come from cloud cover (< 20% open, < 50% few clouds, < 80% broken, otherwise
+overcast; heavy overcast when low clouds ≥ 80%).
+
 ## Run locally (test before deploying)
 
 ```powershell

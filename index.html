@@ -80,6 +80,9 @@
     .chart-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
     .chart-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
     .chart-wrap { position: relative; height: 416px; margin-top: 12px; }
+    .chart-title { display: flex; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; margin-top: 14px; }
+    .chart-title h3 { font-size: 0.85rem; margin: 0; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .chart-title + .chart-wrap { margin-top: 4px; }
     .legend { display: flex; gap: 18px; font-size: 0.8rem; color: var(--muted); margin-top: 10px; flex-wrap: wrap; align-items: center; }
     .legend .k { display: inline-flex; align-items: center; gap: 7px; }
     .swatch { width: 16px; height: 3px; border-radius: 2px; background: var(--accent); display: inline-block; }
@@ -173,15 +176,24 @@
           <button class="btn" data-range="1y">Ano</button>
         </div>
       </div>
+      <div class="chart-title"><h3>Medido na estação</h3></div>
       <div class="chart-wrap">
         <canvas id="windChart"></canvas>
         <div class="chart-loading" id="chartLoading" role="status" hidden><span class="spinner"></span>Carregando…</div>
+      </div>
+      <div class="chart-title">
+        <h3>Previsão ECMWF IFS 9 km</h3>
+        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m · Open-Meteo</span>
+        <span class="busy" id="fcBusy" role="status" hidden><span class="spinner"></span><span id="fcBusyText">carregando previsão…</span></span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="fcChart" aria-label="Previsão de vento ECMWF"></canvas>
       </div>
       <div class="legend">
         <span class="k"><span class="swatch"></span> Vento médio (nós)</span>
         <span class="k"><span class="swatch dot"></span> Rajada (nós)</span>
         <span class="k sky-legend" id="skyLegend" hidden
-              title="Estimado pela radiação solar medida, comparada ao céu limpo esperado para o horário (média por período)">
+              title="Medido: estimado pela radiação solar, comparada ao céu limpo esperado para o horário (média por período). Previsão: cobertura de nuvens (< 20% aberto, < 50% poucas nuvens, < 80% encoberto, ≥ 80% fechado; carregado com nuvens baixas ≥ 80%)">
           <span>Céu:</span><span>☀️ aberto</span><span>🌤️ poucas nuvens</span><span>🌥️ encoberto</span><span>☁️ fechado</span><span><span class="sky-dark">☁️</span> carregado</span><span><span class="swatch night"></span> noite</span>
         </span>
         <span style="margin-left:auto; display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap">
@@ -267,7 +279,8 @@
 
     <footer>
       Atualiza automaticamente a cada 30s. Os envios acontecem a cada 5 minutos pela função agendada do Netlify.
-      O gráfico de vento vem do histórico da Ecowitt Cloud. O reenvio de histórico vale só para o
+      O gráfico de vento vem do histórico da Ecowitt Cloud; a previsão, do ECMWF IFS via
+      <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). O reenvio de histórico vale só para o
       Weather Underground (Windy e Windguru não aceitam dados &gt; 2h).
     </footer>
   </div>
@@ -310,13 +323,13 @@
     const pad2 = (n) => String(n).padStart(2, "0");
 
     let windChart = null;
+    let fcChart = null; // the forecast, same layout, window kept in sync with windChart
     let currentLevel = "5min";
     let clockOffset = 0; // server clock - local clock, seconds
     let station = null; // { lat, lon }
     let sinceSec = null; // first day of station history
     let followNow = true; // keep the window's right edge at "now" as time passes
     let viewSeq = 0; // the latest user action wins; slower, older loads are dropped
-    let arrowPoints = [];
     let dirByTs = new Map();
     let liveTail = []; // live readings from /api/status, newer than the history so far
 
@@ -429,6 +442,7 @@
     let rebuildQueued = false;
     function onChunkLoaded(level) {
       if (!clim.started) startClimate(); // once the first response told us where history starts
+      if (!fc.started) startForecast();
       if (level === "30min") {
         sky.envelopes.clear();
         clim.days = null;
@@ -512,10 +526,12 @@
       }
       windChart.data.datasets[0].data = wind;
       windChart.data.datasets[1].data = gust;
-      arrowPoints = arrows;
+      windChart.$arrows = arrows;
+      rebuildForecast(level, from, to);
       updateLimits();
       updateYAxis(from * 1000, to * 1000);
       windChart.update("none");
+      fcChart.update("none");
       document.getElementById("skyLegend").hidden = !skyActive();
       setHint();
       updateBusy();
@@ -524,7 +540,8 @@
     // ---- Y axis ----
     // Steps of 5 knots; the top is the visible maximum rounded up to the next 5,
     // never below 15 (or 25 in "reference line" mode), so it only moves in
-    // whole steps while panning.
+    // whole steps while panning. Measured and forecast share the same axis so
+    // they can be compared at a glance.
     // Hidden toggle: clicking the word "zoom" in the hint switches that mode,
     // which also draws a line at 15 knots. Remembered in this browser.
     const REF_KNOTS = 15;
@@ -532,13 +549,17 @@
 
     function updateYAxis(fromMs, toMs) {
       let top = 0;
-      for (const ds of windChart.data.datasets) {
-        for (const p of ds.data) if (p.y != null && p.x >= fromMs && p.x <= toMs && p.y > top) top = p.y;
+      for (const chart of [windChart, fcChart]) {
+        for (const ds of chart.data.datasets) {
+          for (const p of ds.data) if (p.y != null && p.x >= fromMs && p.x <= toMs && p.y > top) top = p.y;
+        }
       }
-      const y = windChart.options.scales.y;
-      y.min = 0;
-      y.max = Math.max(refMode ? 25 : 15, Math.ceil((top + 0.5) / 5) * 5);
-      y.ticks.stepSize = 5;
+      for (const chart of [windChart, fcChart]) {
+        const y = chart.options.scales.y;
+        y.min = 0;
+        y.max = Math.max(refMode ? 25 : 15, Math.ceil((top + 0.5) / 5) * 5);
+        y.ticks.stepSize = 5;
+      }
     }
 
     const refLinePlugin = {
@@ -565,12 +586,28 @@
     // Pan/zoom bounds: from the first day of history up to now.
     function updateLimits() {
       const minMs = (sinceSec ?? nowSec() - 400 * DAY) * 1000;
-      windChart.options.plugins.zoom.limits = { x: { min: minMs, max: nowSec() * 1000, minRange: HOUR_MS } };
+      for (const chart of [windChart, fcChart]) {
+        chart.options.plugins.zoom.limits = { x: { min: minMs, max: nowSec() * 1000, minRange: HOUR_MS } };
+      }
     }
 
     function setWindow(fromSec, toSec) {
-      windChart.options.scales.x.min = fromSec * 1000;
-      windChart.options.scales.x.max = toSec * 1000;
+      for (const chart of [windChart, fcChart]) {
+        chart.options.scales.x.min = fromSec * 1000;
+        chart.options.scales.x.max = toSec * 1000;
+      }
+    }
+
+    // Either chart can be dragged or zoomed: copy its window to the other one
+    // right away, so they move together.
+    function syncWindow(src) {
+      const other = src === windChart ? fcChart : windChart;
+      if (!other) return;
+      const s = src.options.scales.x, o = other.options.scales.x;
+      if (o.min === s.min && o.max === s.max) return;
+      o.min = s.min;
+      o.max = s.max;
+      other.update("none");
     }
 
     function setHint() {
@@ -729,7 +766,7 @@
     const SKY_MIN_SLOT_PX = 26;
     const SKY_EMOJI_PX = 17;
 
-    const sky = { envelopes: new Map(), visible: [], sprites: null };
+    const sky = { envelopes: new Map(), sprites: null };
 
     function skyActive() {
       return !!station && SKY_LEVELS.includes(currentLevel);
@@ -848,29 +885,44 @@
       return sky.sprites;
     }
 
-    function skyText(p) {
+    function skyRange(p) {
       const s = new Date(p.start), e = new Date(p.end);
-      const range = p.end - p.start >= DAY * 1000
+      return p.end - p.start >= DAY * 1000
         ? `${pad2(s.getDate())}/${pad2(s.getMonth() + 1)}`
         : `${pad2(s.getHours())}h–${pad2(e.getHours())}h`;
-      return `${p.cls.label} · ${range} · radiação ${Math.round(Math.min(p.k, 1.5) * 100)}% da esperada com céu limpo`;
     }
 
+    function skyText(p) {
+      return `${p.cls.label} · ${skyRange(p)} · radiação ${Math.round(Math.min(p.k, 1.5) * 100)}% da esperada com céu limpo`;
+    }
+
+    // The measured sky band: periods(hours, fromSec, toSec) -> periods, or
+    // null while the envelope's data is still loading (the chunk arrival redraws).
+    const stationSky = {
+      periods(hours, fromSec, toSec) {
+        const env = skyEnvelope(Math.min(toSec, nowSec()));
+        return env && skyPeriods(currentLevel, hours, fromSec, toSec, env);
+      },
+      text: skyText,
+    };
+
+    // Draws chart.$sky's periods as emoji in the band above the plot.
     const skyPlugin = {
       id: "sky",
       afterDraw(chart) {
-        sky.visible = [];
-        if (!skyActive()) return;
+        const src = chart.$sky;
+        chart.$skyVisible = [];
+        if (!src || !skyActive()) return;
         const { ctx, chartArea, scales } = chart;
         const xMin = scales.x.min, xMax = scales.x.max;
         const pxPerHour = chartArea.width / ((xMax - xMin) / HOUR_MS);
         const hours = SKY_PERIODS_H.find((h) => h * pxPerHour >= SKY_MIN_SLOT_PX);
         if (!hours) return;
-        const env = skyEnvelope(Math.min(xMax / 1000, nowSec()));
-        if (!env) return; // its data is still loading; the chunk arrival redraws
+        const periods = src.periods(hours, xMin / 1000, xMax / 1000);
+        if (!periods) return;
         const sprites = skySprites();
         const y = chartArea.top - SKY_BAND / 2;
-        for (const p of skyPeriods(currentLevel, hours, xMin / 1000, xMax / 1000, env)) {
+        for (const p of periods) {
           if (p.end < xMin || p.start > xMax) continue;
           const s = sprites.byLabel.get(p.cls.label);
           let x = scales.x.getPixelForValue(p.x);
@@ -878,7 +930,7 @@
           // Nudge edge emoji inside (e.g. today's period, centred near "now").
           x = Math.min(Math.max(x, chartArea.left + s.size / 2), chartArea.right - s.size / 2);
           ctx.drawImage(s.canvas, x - s.size / 2, y - s.size / 2, s.size, s.size);
-          sky.visible.push({ ...p, px: x });
+          chart.$skyVisible.push({ ...p, px: x });
         }
       },
       // Native tooltip when hovering an emoji in the band above the plot.
@@ -888,8 +940,8 @@
         let title = "";
         const top = chart.chartArea.top;
         if (e.type === "mousemove" && e.y < top && e.y > top - SKY_BAND) {
-          const hit = sky.visible.find((p) => Math.abs(p.px - e.x) <= 12);
-          if (hit) title = skyText(hit);
+          const hit = (chart.$skyVisible || []).find((p) => Math.abs(p.px - e.x) <= 12);
+          if (hit) title = chart.$sky.text(hit);
         }
         if (chart.canvas.title !== title) chart.canvas.title = title;
       },
@@ -900,14 +952,15 @@
     const windArrowsPlugin = {
       id: "windArrows",
       afterDatasetsDraw(chart) {
-        if (!arrowPoints.length) return;
+        const points = chart.$arrows;
+        if (!points || !points.length) return;
         const { ctx, chartArea, scales } = chart;
         const xMin = scales.x.min, xMax = scales.x.max, len = 6;
         ctx.save();
         ctx.strokeStyle = "rgba(232,238,249,0.9)";
         ctx.fillStyle = "rgba(232,238,249,0.9)";
         ctx.lineWidth = 1.3;
-        for (const p of arrowPoints) {
+        for (const p of points) {
           const xMs = p.ts * 1000;
           if (xMs < xMin || xMs > xMax) continue;
           const x = scales.x.getPixelForValue(xMs);
@@ -950,9 +1003,10 @@
         b.classList.toggle("active", b.dataset.range === viewKey));
     }
 
-    function ensureChart() {
-      if (windChart) return windChart;
-      windChart = new Chart(document.getElementById("windChart"), {
+    // Measured and forecast charts share everything but the data; `details(x)`
+    // adds tooltip lines for the point at x (ms).
+    function makeWindChart(canvasId, sky, details) {
+      const chart = new Chart(document.getElementById(canvasId), {
         type: "scatter",
         plugins: [nightPlugin, refLinePlugin, windArrowsPlugin, skyPlugin],
         data: {
@@ -988,10 +1042,8 @@
                 afterBody: (items) => {
                   if (!items.length) return [];
                   const x = items[0].parsed.x;
-                  const lines = [];
-                  const dir = dirByTs.get(x);
-                  if (dir != null) lines.push(`Direção: ${Math.round(dir)}° ${compassPt(dir)}`);
-                  const period = sky.visible.find((p) => x >= p.start && x < p.end);
+                  const lines = details(x);
+                  const period = (items[0].chart.$skyVisible || []).find((p) => x >= p.start && x < p.end);
                   if (period) lines.push(`Céu: ${period.cls.label.toLowerCase()}`);
                   return lines;
                 },
@@ -1005,15 +1057,28 @@
           },
         },
       });
+      chart.$sky = sky;
+      chart.$arrows = [];
+      return chart;
+    }
+
+    function ensureChart() {
+      if (windChart) return windChart;
+      windChart = makeWindChart("windChart", stationSky, (x) => {
+        const dir = dirByTs.get(x);
+        return dir != null ? [`Direção: ${Math.round(dir)}° ${compassPt(dir)}`] : [];
+      });
+      fcChart = makeWindChart("fcChart", forecastSky, forecastDetails);
       return windChart;
     }
 
     // ---- View changes ----
-    // While dragging/zooming: keep fetching ahead and refresh the datasets
-    // (throttled). When it settles: switch resolution level if the visible span
-    // crossed a threshold.
+    // While dragging/zooming either chart: keep the other in step, keep fetching
+    // ahead and refresh the datasets (throttled). When it settles: switch
+    // resolution level if the visible span crossed a threshold.
     let moveTimer = null;
-    function onViewMove() {
+    function onViewMove({ chart }) {
+      syncWindow(chart);
       followNow = false;
       if (moveTimer) return;
       moveTimer = setTimeout(() => {
@@ -1024,7 +1089,8 @@
       }, 120);
     }
 
-    async function onViewSettled() {
+    async function onViewSettled({ chart }) {
+      syncWindow(chart);
       const [from, to] = viewRange();
       // Dragged back to the present: resume following new data.
       followNow = nowSec() - to < 2 * LEVELS[currentLevel].res + 60;
@@ -1100,6 +1166,177 @@
       loadAround(level, end - (to - from), end); // e.g. yesterday's chunk turning final
       rebuildData();
     }
+
+    // ---- Forecast ----
+    // ECMWF IFS (9 km HRES) from Open-Meteo's historical-forecast API: for each
+    // hour, the value from the most recent model run that covered it, so past
+    // hours are short-range forecasts and the latest ones come from the current
+    // run. Hourly, fetched straight from the browser (no key, CORS open): the
+    // last days first so the default view is quick, then the whole history.
+    // Refreshed hourly (ECMWF runs four times a day). Aggregated levels average
+    // like the station history does: mean wind, max gust.
+    const FC_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
+    const FC_MODEL = "ecmwf_ifs";
+    const FC_VARS = ["wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
+      "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high"];
+    const FC_RECENT_DAYS = 10;
+    const FC_REFRESH_MS = 3600e3;
+    const FC_RETRY_MS = 60e3;
+    // Seconds between direction arrows per level (about as dense as the measured ones).
+    const FC_ARROW_EVERY = { "5min": 3600, "30min": 3 * 3600, "4hour": 5 * 14400, "1day": 5 * 86400 };
+    const fc = { started: false, full: false, byTs: new Map(), hours: [], shown: new Map(), timer: null };
+
+    const isoDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
+
+    async function fetchForecast(fromSec) {
+      const q = new URLSearchParams({
+        latitude: station.lat, longitude: station.lon, models: FC_MODEL,
+        hourly: FC_VARS.join(","), wind_speed_unit: "kn", timeformat: "unixtime",
+        start_date: isoDate(fromSec), end_date: isoDate(nowSec() + DAY),
+      });
+      const res = await fetch(`${FC_URL}?${q}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.error || !body.hourly) throw new Error(body.reason || `HTTP ${res.status}`);
+      const h = body.hourly;
+      return h.time.map((ts, i) => ({
+        ts, wind_knots: h.wind_speed_10m[i], gust_knots: h.wind_gusts_10m[i], dir: h.wind_direction_10m[i],
+        cloud: h.cloud_cover[i], low: h.cloud_cover_low[i], mid: h.cloud_cover_mid[i], high: h.cloud_cover_high[i],
+      }));
+    }
+
+    function mergeForecast(points) {
+      for (const p of points) fc.byTs.set(p.ts, p);
+      fc.hours = [...fc.byTs.values()].sort((a, b) => a.ts - b.ts);
+      if (windChart) rebuildData();
+    }
+
+    function setFcBusy(text) {
+      document.getElementById("fcBusy").hidden = !text;
+      if (text) document.getElementById("fcBusyText").textContent = text;
+    }
+
+    async function loadForecast() {
+      clearTimeout(fc.timer);
+      if (!fc.hours.length) setFcBusy("carregando previsão…");
+      try {
+        mergeForecast(await fetchForecast(nowSec() - FC_RECENT_DAYS * DAY));
+        if (!fc.full) {
+          setFcBusy("carregando histórico da previsão…");
+          mergeForecast(await fetchForecast(sinceSec));
+          fc.full = true;
+        }
+        setFcBusy(null);
+        fc.timer = setTimeout(loadForecast, FC_REFRESH_MS);
+      } catch (err) {
+        setFcBusy("previsão indisponível, tentando de novo…");
+        fc.timer = setTimeout(loadForecast, FC_RETRY_MS);
+      }
+    }
+
+    function startForecast() {
+      if (fc.started || !sinceSec || !station) return;
+      fc.started = true;
+      loadForecast();
+    }
+
+    // Hourly points into `res`-second bins (UTC-aligned, like the station's).
+    function binForecast(res, lo, hi) {
+      const bins = new Map();
+      for (const p of fc.hours) {
+        if (p.ts < lo - res || p.ts > hi || p.wind_knots == null) continue;
+        const ts = Math.floor(p.ts / res) * res;
+        let b = bins.get(ts);
+        if (!b) bins.set(ts, (b = { ts, n: 0, wind: 0, gust: null, u: 0, v: 0, nc: 0, cloud: 0, low: 0, mid: 0, high: 0 }));
+        b.n += 1;
+        b.wind += p.wind_knots;
+        if (p.gust_knots != null) b.gust = Math.max(b.gust ?? 0, p.gust_knots);
+        if (p.dir != null) { b.u += p.wind_knots * Math.sin(p.dir * RAD); b.v += p.wind_knots * Math.cos(p.dir * RAD); }
+        if (p.cloud != null) {
+          b.nc += 1; b.cloud += p.cloud; b.low += p.low ?? 0; b.mid += p.mid ?? 0; b.high += p.high ?? 0;
+        }
+      }
+      return [...bins.values()].sort((a, b) => a.ts - b.ts).map((b) => ({
+        ts: b.ts, wind_knots: b.wind / b.n, gust_knots: b.gust,
+        dir: b.u || b.v ? (Math.atan2(b.u, b.v) / RAD + 360) % 360 : null,
+        cloud: b.nc ? b.cloud / b.nc : null, low: b.nc ? b.low / b.nc : null,
+        mid: b.nc ? b.mid / b.nc : null, high: b.nc ? b.high / b.nc : null,
+      }));
+    }
+
+    // Forecast datasets for the window (two screens either side, up to now).
+    function rebuildForecast(level, from, to) {
+      const span = to - from;
+      const lo = from - 2 * span, hi = Math.min(to + 2 * span, nowSec());
+      const res = LEVELS[level].res;
+      const pts = res <= 3600 ? fc.hours.filter((p) => p.ts >= lo && p.ts <= hi) : binForecast(res, lo, hi);
+      const every = FC_ARROW_EVERY[level];
+      const wind = [], gust = [], arrows = [];
+      fc.shown = new Map();
+      for (const p of pts) {
+        wind.push({ x: p.ts * 1000, y: p.wind_knots });
+        if (p.gust_knots != null) gust.push({ x: p.ts * 1000, y: p.gust_knots });
+        if (p.dir != null && p.wind_knots != null && p.ts % every === 0) arrows.push(p);
+        fc.shown.set(p.ts * 1000, p);
+      }
+      fcChart.data.datasets[0].data = wind;
+      fcChart.data.datasets[1].data = gust;
+      fcChart.$arrows = arrows;
+      fcChart.options.scales.x.min = windChart.options.scales.x.min;
+      fcChart.options.scales.x.max = windChart.options.scales.x.max;
+    }
+
+    function forecastDetails(x) {
+      const p = fc.shown.get(x);
+      if (!p) return [];
+      const lines = [];
+      if (p.dir != null) lines.push(`Direção: ${Math.round(p.dir)}° ${compassPt(p.dir)}`);
+      if (p.cloud != null) {
+        lines.push(`Nuvens: ${Math.round(p.cloud)}% (baixas ${Math.round(p.low)}%, médias ${Math.round(p.mid)}%, altas ${Math.round(p.high)}%)`);
+      }
+      return lines;
+    }
+
+    // Same five sky classes as the measured band, from the model's cloud cover
+    // (%): thick low overcast counts as "carregado".
+    function cloudClass(cloud, low) {
+      if (cloud < 20) return SKY_CLASSES[0];
+      if (cloud < 50) return SKY_CLASSES[1];
+      if (cloud < 80) return SKY_CLASSES[2];
+      return low >= 80 ? SKY_CLASSES[4] : SKY_CLASSES[3];
+    }
+
+    // Forecast sky band: mean cloud cover over the period's hours with the sun
+    // at least 10 deg up (the same hours the measured band uses).
+    const forecastSky = {
+      periods(hours, fromSec, toSec) {
+        if (!fc.hours.length) return null;
+        const margin = hours * 3600;
+        const hi = Math.min(toSec + margin, nowSec());
+        const groups = new Map();
+        for (const p of fc.hours) {
+          if (p.ts < fromSec - margin || p.ts > hi || p.cloud == null) continue;
+          p.sun ??= sunElevation(p.ts + 1800, station.lat, station.lon);
+          if (p.sun < SKY_MIN_ELEV) continue;
+          const d = new Date(p.ts * 1000);
+          const hour = d.getHours();
+          d.setHours(0, 0, 0, 0);
+          const start = d.getTime() + Math.floor(hour / hours) * hours * HOUR_MS;
+          let g = groups.get(start);
+          if (!g) groups.set(start, (g = { start, n: 0, cloud: 0, low: 0, first: p.ts, last: p.ts }));
+          g.n += 1;
+          g.cloud += p.cloud;
+          g.low += p.low ?? 0;
+          g.first = Math.min(g.first, p.ts);
+          g.last = Math.max(g.last, p.ts);
+        }
+        return [...groups.values()].map((g) => {
+          const cloud = g.cloud / g.n, low = g.low / g.n;
+          return { start: g.start, end: g.start + hours * HOUR_MS, x: ((g.first + g.last + 3600) / 2) * 1000,
+            cloud, low, cls: cloudClass(cloud, low) };
+        });
+      },
+      text: (p) => `${p.cls.label} · ${skyRange(p)} · nuvens ${Math.round(p.cloud)}% (baixas ${Math.round(p.low)}%)`,
+    };
 
     // ---- Wind statistics ----
     // Built from the whole history at 30-min resolution (the same chunks the
