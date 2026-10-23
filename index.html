@@ -507,6 +507,11 @@
         job = { key, level, start, priority, attempt: 0 };
         job.promise = new Promise((resolve) => { job.resolve = resolve; });
         jobs.set(key, job);
+        // Derived levels take no download slot (they wait on 30-min ones that do).
+        if (DERIVED.has(level)) {
+          deriveChunk(job).catch(() => storeChunk(job, { points: [], final: false, failed: true, fetchedAt: Date.now() }));
+          return job.promise;
+        }
         queue.push(job);
       }
       job.priority = Math.min(job.priority, priority);
@@ -529,6 +534,39 @@
       jobs.delete(job.key);
       job.resolve(chunk);
       onChunkLoaded(job.level);
+    }
+
+    // 4-hour and daily chunks are computed here from the 30-min data (which
+    // the statistics load anyway): mean wind, max gust, mean direction and
+    // solar per UTC-aligned period, like Ecowitt's own aggregates.
+    const DERIVED = new Set(["4hour", "1day"]);
+
+    async function deriveChunk(job) {
+      const { level, start } = job;
+      const { res, chunk: size } = LEVELS[level];
+      const weeks = await Promise.all(chunkStarts("30min", start, start + size - 1)
+        .map((s) => requestChunk("30min", s, job.priority)));
+      const bins = new Map();
+      for (const c of weeks) {
+        for (const p of c.points) {
+          if (p.ts < start || p.ts >= start + size || p.wind_knots == null) continue;
+          const ts = Math.floor(p.ts / res) * res;
+          let b = bins.get(ts);
+          if (!b) bins.set(ts, (b = { ts, n: 0, w: 0, g: null, u: 0, v: 0, ns: 0, s: 0 }));
+          b.n += 1;
+          b.w += p.wind_knots;
+          if (p.gust_knots != null) b.g = Math.max(b.g ?? 0, p.gust_knots);
+          if (p.dir != null) { b.u += p.wind_knots * Math.sin(p.dir * RAD); b.v += p.wind_knots * Math.cos(p.dir * RAD); }
+          if (p.solar != null) { b.ns += 1; b.s += p.solar; }
+        }
+      }
+      const points = [...bins.values()].sort((a, b) => a.ts - b.ts).map((b) => ({
+        ts: b.ts, wind_knots: Math.round((b.w / b.n) * 10) / 10, gust_knots: b.g,
+        dir: b.u || b.v ? Math.round((Math.atan2(b.u, b.v) / RAD + 360) % 360) : null,
+        solar: b.ns ? Math.round(b.s / b.ns) : null,
+      }));
+      const final = weeks.every((c) => c.final) && start + size + res + 3600 <= nowSec();
+      storeChunk(job, { points, final, failed: weeks.some((c) => c.failed), fetchedAt: Date.now() });
     }
 
     async function fetchChunk(job) {
@@ -934,6 +972,8 @@
       const toSec = (key + 1) * DAY;
       const starts = chunkStarts("30min", fromSec, toSec);
       if (starts.some((s) => !chunks["30min"].has(s))) {
+        // While the bundle loads, wait for it (its arrival redraws).
+        if (bundleReady !== true) return null;
         for (const s of starts) requestChunk("30min", s, 50);
         return null;
       }
@@ -1274,10 +1314,12 @@
     // Warm what the next likely clicks need, at low priority: the sky envelope
     // (3 weeks of 30-min data) and the latest month.
     function prefetchFor(level) {
-      const now = nowSec();
-      if (SKY_LEVELS.includes(level)) skyEnvelope(now);
-      loadAround("30min", now - 7 * DAY, now, 100);
-      loadAround("4hour", now - 30 * DAY, now, 200);
+      afterBundle().then(() => {
+        const now = nowSec();
+        if (SKY_LEVELS.includes(level)) skyEnvelope(now);
+        loadAround("30min", now - 7 * DAY, now, 100);
+        loadAround("4hour", now - 30 * DAY, now, 200);
+      });
     }
 
     // Keep the chart live: if the window follows "now", refresh the latest chunk
@@ -1742,14 +1784,69 @@
       hourEmpty.textContent = empty;
     }
 
-    // Requests every 30-min week since the first day, newest first and behind
-    // whatever the main chart needs.
-    function startClimate() {
+    // Loads every 30-min week since the first day: the closed ones in one
+    // bundle, then whatever it didn't cover (the current week; every week if
+    // the bundle failed) one by one, newest first and behind whatever the
+    // main chart needs.
+    async function startClimate() {
       if (clim.started || !sinceSec || !station) return;
       clim.started = true;
+      renderClimate();
+      bundleReady = loadBundle();
+      await bundleReady;
+      bundleReady = true;
       const starts = chunkStarts("30min", sinceSec, nowSec()).reverse();
       starts.forEach((s, i) => requestChunk("30min", s, 300 + i));
       renderClimate();
+    }
+
+    // null = not asked yet, a promise while loading, true once done (or failed).
+    // 30-min requests that the bundle would answer wait for it.
+    let bundleReady = null;
+    const afterBundle = () => (bundleReady === true ? Promise.resolve() : bundleReady || Promise.resolve());
+
+    // Start of the last final 30-min week (same rule as lib/chunks.mjs isFinal).
+    function lastFinalWeek() {
+      const { res, chunk: size } = LEVELS["30min"];
+      let s = alignChunk("30min", nowSec());
+      while (s + size + res + 3600 > nowSec()) s -= size;
+      return s;
+    }
+
+    // The bundle (lib/bundle.mjs) split back into the weekly chunks everything
+    // else reads. Never changes, so the browser keeps it.
+    async function loadBundle() {
+      try {
+        const res = await fetch(`/api/history?bundle=30min&upto=${lastFinalWeek()}&v=${HISTORY_VERSION}`);
+        if (!res.ok) return;
+        const b = await res.json();
+        const weeks = new Map();
+        let ts = b.ts0;
+        for (let i = 0; i < b.dt.length; i++) {
+          ts += b.dt[i];
+          const s = alignChunk("30min", ts);
+          if (!weeks.has(s)) weeks.set(s, []);
+          weeks.get(s).push({
+            ts, wind_knots: b.w[i] == null ? null : b.w[i] / 10, gust_knots: b.g[i] == null ? null : b.g[i] / 10,
+            dir: b.d[i], solar: b.s[i],
+          });
+        }
+        const fetchedAt = Date.now();
+        for (let s = b.from; s <= b.upto; s += b.size) {
+          const chunk = { points: weeks.get(s) || [], final: true, fetchedAt };
+          const job = jobs.get(`30min:${s}`);
+          if (job) {
+            const i = queue.indexOf(job);
+            if (i >= 0) queue.splice(i, 1);
+            storeChunk(job, chunk);
+          } else {
+            chunks["30min"].set(s, chunk);
+          }
+        }
+        onChunkLoaded("30min");
+      } catch (e) {
+        // Fall back to week-by-week loading.
+      }
     }
 
     renderMonthButtons();

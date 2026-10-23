@@ -10,6 +10,7 @@
 // run 30 s), so the initial catch-up spreads over a few hours and afterwards
 // each run has at most one new day to save.
 import { DAY, SINCE, alignChunk, chunkKey, chunkSize, historyStore, isFinal, loadChunk } from "../../lib/chunks.mjs";
+import { bundleUpto, loadBundle } from "../../lib/bundle.mjs";
 
 const FIVE_MIN_DAYS = 88; // stay inside Ecowitt's ~90-day window
 const BUDGET_MS = 20000;
@@ -47,7 +48,19 @@ export default async () => {
       console.error(`archive ${level}:${start}:`, String(err));
     }
   }
-  const summary = `archived ${saved}, failed ${failed}, remaining ${todo.length - saved}`;
+  // Build this week's 30-min bundle ahead of the first visitor (a no-op
+  // once it exists; it needs every 30-min week archived first).
+  let bundle = "";
+  if (saved + failed === todo.length && Date.now() - started < BUDGET_MS) {
+    try {
+      await loadBundle(bundleUpto(now), now, store);
+      bundle = ", bundle ok";
+    } catch (err) {
+      console.error("archive bundle:", String(err));
+      bundle = ", bundle failed";
+    }
+  }
+  const summary = `archived ${saved}, failed ${failed}, remaining ${todo.length - saved}${bundle}`;
   console.log(summary);
   return new Response(summary);
 };

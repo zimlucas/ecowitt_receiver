@@ -22,16 +22,21 @@ no server to keep alive.
 ### History and the chart
 
 History is stored per resolution in fixed, aligned chunks (`lib/chunks.mjs`):
-5-min data in 1-day chunks, 30-min in weeks, 4-hour in months, daily in
-quarters. A chunk whose period has closed never changes, so it is kept in the
-`history` Blobs store forever and served with long browser/CDN cache headers;
-only the latest chunk is re-read from Ecowitt. The chart loads just the chunks
-around what is on screen, so it can be dragged across the whole history (since
-`STATION_SINCE`) in any view.
+5-min data in 1-day chunks, 30-min in weeks. A chunk whose period has closed
+never changes, so it is kept in the `history` Blobs store forever and served
+with long browser/CDN cache headers; only the latest chunk is re-read from
+Ecowitt (at most every 5 min). The chart loads just the chunks around what is
+on screen, so it can be dragged across the whole history (since
+`STATION_SINCE`) in any view; the month and year views (4-hour and daily
+periods) are computed in the browser from the 30-min data.
 
-Below the chart, the wind statistics (wind rose and wind by hour of day) load
-every 30-min week since `STATION_SINCE` and compute everything in the browser,
-filtered by a minimum wind and by month. Only daylight samples count, and a day
+Every closed 30-min week is also packed into one compact bundle
+(`lib/bundle.mjs`, ~50 KB compressed), built by the archiver and cached for
+good, so the page gets the whole 30-min history in one request.
+
+Below the chart, the wind statistics (wind rose and wind by hour of day) use
+that 30-min history and compute everything in the browser, filtered by a
+minimum wind and by month. Only daylight samples count, and a day
 counts only if the wind stayed at or above the minimum for 1 h in a row.
 
 Ecowitt keeps 5-minute data only ~90 days (older days come back at 30-min
