@@ -64,7 +64,10 @@ Each column has a min/max range filter (direction ranges may wrap through
 north), with an optional daylight-only filter; a summary shows how the
 measured wind turned out for the hours left, e.g. "forecast 11 kn mean / 17 kn
 gust from SE: what did the station get?". Built in the browser from the same
-data as the statistics and the forecast chart.
+data as the statistics and the forecast chart. A second tab swaps the rows for
+a stack of charts of any unfiltered column (1-kn histograms for speeds, a wind
+rose for directions, bars per hour of day, a calendar for days), each hour
+colored by whether the measured mean reached the statistics' minimum.
 
 ## Run locally (test before deploying)
 
