@@ -176,8 +176,11 @@
       width: 9px; height: 9px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent);
     }
     .dual input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .dual-val { color: var(--muted); font-size: 0.74rem; white-space: nowrap; min-height: 1.2em; }
+    .dual-val { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 0.74rem; white-space: nowrap; min-height: 1.2em; cursor: pointer; }
+    .dual-val input { margin: 0; width: 12px; height: 12px; accent-color: var(--accent); cursor: pointer; }
+    .dual-val input:disabled { cursor: default; opacity: 0.4; }
     .dual-val.on { color: var(--accent); font-weight: 650; }
+    .dual-val.off span { text-decoration: line-through; }
     .tbl-more { display: flex; justify-content: center; margin-top: 10px; }
     .tbl-more[hidden], .tbl-more .btn[hidden] { display: none; }
   </style>
@@ -318,7 +321,8 @@
       <div class="hint">
         Uma linha por hora (nós). Previsão: o mesmo ponto do gráfico, rodada mais recente; a rajada é a máxima da
         hora anterior. Medido: as leituras de 30 min de hh:30 da hora anterior e hh:00 (média, rajada máxima e direção
-        média). Ajuste os controles de cada coluna para filtrar; na direção, mínimo à direita do máximo dá a volta pelo
+        média). Ajuste os controles de cada coluna para filtrar; a caixinha ao lado da faixa desliga e religa o filtro
+        sem perder a posição. Na direção, mínimo à direita do máximo dá a volta pelo
         norte (ex.: 330°–30°). A sequência mínima deixa só as horas que, junto com as vizinhas, passam nos filtros
         por pelo menos esse número de horas seguidas; o fundo do dia e da hora alterna a cada sequência. Clique no nome
         da coluna para ordenar. O resumo usa o vento mínimo das estatísticas acima.
@@ -1772,10 +1776,13 @@
     }
 
     // ---- Range filters ----
+    // Moving a slider turns its filter on; the checkbox next to the range
+    // switches it off (and back on) without losing the slider positions.
     function fullRange(c, f) { return f.lo === c.min && f.hi === c.max; }
+    const filterActive = (c, f) => f.enabled && !fullRange(c, f);
 
     function passes(c, f, v) {
-      if (fullRange(c, f)) return true;
+      if (!filterActive(c, f)) return true;
       if (v == null) return false;
       if (c.kind === "dir" && f.lo > f.hi) return v >= f.lo || v <= f.hi; // wraps through north
       if (c.kind === "kn") return v >= f.lo && (f.hi === c.max || v <= f.hi); // top = no upper limit
@@ -1795,12 +1802,16 @@
       const f = tbl.filters[c.key];
       const pct = (v) => ((v - c.min) / (c.max - c.min)) * 100;
       const a = pct(Math.min(f.lo, f.hi)), b = pct(Math.max(f.lo, f.hi));
-      const on = "var(--accent)", off = "var(--line)";
+      const full = fullRange(c, f), active = filterActive(c, f);
+      const on = active || full ? "var(--accent)" : "var(--idle)", off = "var(--line)";
       f.track.style.background = c.kind === "dir" && f.lo > f.hi
         ? `linear-gradient(to right, ${on} 0 ${a}%, ${off} ${a}% ${b}%, ${on} ${b}% 100%)`
         : `linear-gradient(to right, ${off} 0 ${a}%, ${on} ${a}% ${b}%, ${off} ${b}% 100%)`;
-      f.val.textContent = rangeText(c, f);
-      f.val.classList.toggle("on", !fullRange(c, f));
+      f.txt.textContent = rangeText(c, f);
+      f.chk.checked = active;
+      f.chk.disabled = full;
+      f.val.classList.toggle("on", active);
+      f.val.classList.toggle("off", !active && !full);
       // The upper thumb stays grabbable when both sit at the right end.
       f.loEl.style.zIndex = f.lo > (c.min + c.max) / 2 ? 3 : 2;
     }
@@ -1823,8 +1834,13 @@
 
         const fth = document.createElement("th");
         if (c.sep) fth.className = "sep";
-        const val = document.createElement("div");
+        const val = document.createElement("label");
         val.className = "dual-val";
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.setAttribute("aria-label", `Filtro ${c.label} ligado`);
+        const txt = document.createElement("span");
+        val.append(chk, txt);
         const dual = document.createElement("div");
         dual.className = "dual";
         const track = document.createElement("div");
@@ -1839,7 +1855,12 @@
         dual.append(track, loEl, hiEl);
         fth.append(val, dual);
         filters.appendChild(fth);
-        const f = (tbl.filters[c.key] = { lo: c.min, hi: c.max, loEl, hiEl, track, val });
+        const f = (tbl.filters[c.key] = { lo: c.min, hi: c.max, enabled: false, loEl, hiEl, track, val, chk, txt });
+        const changed = () => {
+          paintSlider(c);
+          tbl.limit = TBL_PAGE;
+          scheduleTableRender();
+        };
         const onInput = (which) => {
           let lo = Number(loEl.value), hi = Number(hiEl.value);
           // Only direction ranges may cross (they wrap through north).
@@ -1848,12 +1869,12 @@
             loEl.value = lo; hiEl.value = hi;
           }
           f.lo = lo; f.hi = hi;
-          paintSlider(c);
-          tbl.limit = TBL_PAGE;
-          scheduleTableRender();
+          f.enabled = true;
+          changed();
         };
         loEl.addEventListener("input", () => onInput("lo"));
         hiEl.addEventListener("input", () => onInput("hi"));
+        chk.addEventListener("change", () => { f.enabled = chk.checked; changed(); });
         paintSlider(c);
       }
       updateSortLabels();
@@ -1863,7 +1884,7 @@
     function resetFilters() {
       for (const c of TBL_COLS) {
         const f = tbl.filters[c.key];
-        f.lo = c.min; f.hi = c.max;
+        f.lo = c.min; f.hi = c.max; f.enabled = false;
         f.loEl.value = c.min; f.hiEl.value = c.max;
         paintSlider(c);
       }
