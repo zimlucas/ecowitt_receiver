@@ -327,5 +327,4 @@ renderMonthButtons();
 document.getElementById("climMin").addEventListener("input", (e) => {
   document.getElementById("climMinVal").textContent = `${e.target.value} nós`;
   renderClimate();
-  renderTable();
 });

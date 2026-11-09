@@ -54,10 +54,14 @@ const LIVE_GAP_SEC = 240; // min. distance from the last history point to a live
 
 const nowSec = () => Math.floor(Date.now() / 1000) + clockOffset;
 
+// The charts reach this far past "now", where only the forecast has data.
+const AHEAD_SEC = DAY;
+
 // Pick the resolution level for a visible span (seconds). The thresholds sit
-// just above each view so e.g. zooming into a single day jumps to 5-min data.
+// just above each view (which also shows the next 24 h), so e.g. zooming
+// into a day or two jumps to 5-min data.
 function levelForSpan(spanSec) {
-  if (spanSec <= 1.5 * DAY) return "5min";
+  if (spanSec <= 2.5 * DAY) return "5min";
   if (spanSec <= 10 * DAY) return "30min";
   if (spanSec <= 45 * DAY) return "4hour";
   return "1day";
@@ -168,7 +172,14 @@ async function fetchChunk(job) {
     const res = await fetch(`/api/history?level=${job.level}&chunk=${job.start}&v=${HISTORY_VERSION}`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    if (body.server_time) clockOffset = body.server_time - Math.floor(Date.now() / 1000);
+    // Only a still-growing chunk tells the time: a final one may come from
+    // the CDN or browser cache, with the server_time of when it was first
+    // made (days ago), which would drag "now" back to then. A live one is
+    // cached for minutes at most, and the CDN's Age header covers that.
+    if (body.server_time && !body.final) {
+      const age = Number(res.headers.get("Age")) || 0;
+      clockOffset = body.server_time + age - Math.floor(Date.now() / 1000);
+    }
     if (body.station) station = body.station;
     if (body.since) sinceSec = body.since;
     storeChunk(job, { points: body.points || [], final: !!body.final, fetchedAt: Date.now() });

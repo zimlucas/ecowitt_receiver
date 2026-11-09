@@ -52,7 +52,12 @@ shaded in late afternoon), averaged per period. Night is shaded in the plot.
 Under the measured chart, a second chart with the same layout shows the
 **ECMWF IFS 9 km** forecast for the station (wind and gust at 10 m, cloud
 cover), from Open-Meteo's historical-forecast API: for each hour, the most
-recent model run that covered it. It uses the nearest **sea** grid point
+recent model run that covered it. Two buttons switch the past hours to what
+the forecast said **24 h** or **72 h** before each hour (Open-Meteo's
+previous-runs API; mean wind, direction and total cloud cover only, no gusts);
+the next 24 h, shown to the right of an "agora" line on both charts, always
+come from the latest run. The choice is remembered in the browser and also
+drives the table below. It uses the nearest **sea** grid point
 (`cell_selection=sea`, ~5 km offshore): the default land point treats the
 beach as rough terrain (weaker mean wind, stronger gusts) while the station's
 strong wind comes from the sea. The browser fetches it directly (no key, no
@@ -71,8 +76,9 @@ measured wind turned out for the hours left, e.g. "forecast 11 kn mean / 17 kn
 gust from SE: what did the station get?". Built in the browser from the same
 data as the statistics and the forecast chart. A second tab swaps the rows for
 a stack of charts of any unfiltered column (1-kn histograms for speeds, a wind
-rose for directions, bars per hour of day, a calendar for days), each hour
-colored by whether the measured mean reached the statistics' minimum.
+rose for directions, bars per hour of day, a calendar for days) that count
+sequences (runs of consecutive hours passing the filters), each one once, by
+the median of the column over its hours.
 
 ## Run locally (test before deploying)
 

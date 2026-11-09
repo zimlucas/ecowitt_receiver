@@ -5,12 +5,12 @@
 
 // ---- Histograms tab ----
 // Same filters and summary as the table; the rows below the header are
-// replaced by a stack of views, each of one unfiltered column. Every view
-// splits the hours it counts the same way: measured mean >= the minimum of
-// the statistics (blue) or below it (orange). Speeds are 1-kn histograms
-// with the median marked, hours of day are bars, directions a 16-sector
-// wind rose and days a calendar.
-const HIST_ON = "#3987e5", HIST_OFF = "#d95926", HIST_SURFACE = "#1a2640";
+// replaced by a stack of views, each of one unfiltered column. Views count
+// sequences (runs of consecutive hours that pass the filters, see keepRuns),
+// not hours: each sequence counts once, by the median of the column over its
+// hours. Speeds are 1-kn histograms with the median marked, hours of day are
+// bars, directions a 16-sector wind rose and days a calendar.
+const HIST_COLOR = "#3987e5", HIST_SURFACE = "#1a2640";
 const HIST_MUTED = "#8a99b5", HIST_GRID = "rgba(255,255,255,0.07)";
 const FC_KEYS = ["fdir", "fw", "fg"], M_KEYS = ["mdir", "mw", "mg"];
 const HIST_ORDER = ["mw", "mdir", "hour", "mg", "fw", "fdir", "fg", "day"];
@@ -20,6 +20,7 @@ const histKind = (k) => colByKey[k].kind; // kn | dir | hour | day
 const hist = { views: [] };
 const f1 = (v) => v.toFixed(1).replace(".", ",");
 const pct = (n, d) => (d ? Math.round((100 * n) / d) : 0);
+const seqWord = (n) => `${n.toLocaleString("pt-BR")} sequência${n === 1 ? "" : "s"}`;
 
 const isFiltered = (k) => filterActive(colByKey[k], tbl.filters[k]);
 const availableKeys = () => HIST_ORDER.filter((k) => !isFiltered(k));
@@ -34,6 +35,28 @@ function defaultKey(taken = []) {
   return avail.find((k) => !taken.includes(k)) ?? avail[0] ?? pref;
 }
 
+// ---- One value per sequence: the median ----
+// Directions: the median of the angles unwrapped around their mean (so a
+// run swinging through north isn't averaged to south), wrapped back.
+function dirMedian(vals) {
+  let u = 0, v = 0;
+  for (const d of vals) { u += Math.sin(d * RAD); v += Math.cos(d * RAD); }
+  const ref = u || v ? Math.atan2(u, v) / RAD : vals[0];
+  const rel = vals.map((d) => ((((d - ref) % 360) + 540) % 360) - 180).sort((a, b) => a - b);
+  return (((ref + quantile(rel, 0.5)) % 360) + 360) % 360;
+}
+
+// Hour and day are those of the run's middle time (rows are hourly and in
+// time order, so the middle row, or the earlier of the two middle ones).
+function runValue(run, key) {
+  const kind = histKind(key);
+  if (kind === "hour" || kind === "day") return run[Math.floor((run.length - 1) / 2)][key];
+  const vals = run.map((r) => r[key]).filter((v) => v != null);
+  if (!vals.length) return null;
+  if (kind === "dir") return dirMedian(vals);
+  return quantile(vals.sort((a, b) => a - b), 0.5);
+}
+
 function addView(key = null) {
   const view = { key, auto: key == null, kind: null, chart: null, draw: null, hit: null };
   const el = document.createElement("div");
@@ -46,7 +69,7 @@ function addView(key = null) {
     el, title: el.querySelector("h3"), select: el.querySelector("select"), body: el.querySelector(".hist-body"),
     note: el.querySelector(".hist-note"), tip: el.querySelector(".hist-tip"),
   });
-  view.select.addEventListener("change", () => { view.key = view.select.value; view.auto = false; renderHists(tbl.filtered); });
+  view.select.addEventListener("change", () => { view.key = view.select.value; view.auto = false; renderHists(tbl.runs); });
   el.querySelector(".hist-x").addEventListener("click", () => removeView(view));
   // Redraw custom canvases on resize; skip while the tab is hidden (zero width).
   new ResizeObserver(() => view.draw && view.body.clientWidth > 0 && view.draw()).observe(view.body);
@@ -60,13 +83,11 @@ function removeView(view) {
   if (view.chart) view.chart.destroy();
   view.el.remove();
   hist.views = hist.views.filter((v) => v !== view);
-  if (!hist.views.length) { addView(); renderHists(tbl.filtered); }
+  if (!hist.views.length) { addView(); renderHists(tbl.runs); }
 }
 
-function renderHists(rows) {
+function renderHists(runs) {
   if (!hist.views.length) addView();
-  const min = Number(document.getElementById("climMin").value);
-  document.querySelectorAll("#histPanel [data-min]").forEach((s) => { s.textContent = min; });
   const avail = availableKeys();
   hist.views.forEach((view, i) => {
     // An automatic view follows the default; a chosen one falls back to it
@@ -77,7 +98,7 @@ function renderHists(rows) {
     }
     view.select.innerHTML = avail.map((k) => `<option value="${k}"${k === view.key ? " selected" : ""}>${colName(k)}</option>`).join("");
     view.title.innerHTML = colName(view.key);
-    renderView(view, rows, min);
+    renderView(view, runs);
   });
 }
 
@@ -112,24 +133,24 @@ function showTip(view, html, e) {
   view.tip.style.top = `${y}px`;
 }
 
-function renderView(view, rows, min) {
+function renderView(view, runs) {
   const kind = histKind(view.key);
   setViewKind(view, kind);
   const empty = view.body.querySelector(".hist-empty");
   if (empty) empty.remove();
-  if (!rows.length) {
+  if (!runs.length) {
     view.note.textContent = "";
-    view.body.insertAdjacentHTML("beforeend", `<div class="hist-empty">Nenhuma hora com esses filtros.</div>`);
+    view.body.insertAdjacentHTML("beforeend", `<div class="hist-empty">Nenhuma sequência com esses filtros.</div>`);
   }
-  if (kind === "kn") renderSpeed(view, rows, min);
-  else if (kind === "hour") renderHours(view, rows, min);
-  else if (kind === "dir") renderRose(view, rows, min);
-  else renderCalendar(view, rows, min);
+  if (kind === "kn") renderSpeed(view, runs);
+  else if (kind === "hour") renderHours(view, runs);
+  else if (kind === "dir") renderRose(view, runs);
+  else renderCalendar(view, runs);
 }
 
 // ---- Bars (speeds, hours) ----
-const barDataset = (label, data, color) => ({
-  label, data, backgroundColor: color, hoverBackgroundColor: color, stack: "s",
+const barDataset = (data) => ({
+  label: "sequências", data, backgroundColor: HIST_COLOR, hoverBackgroundColor: HIST_COLOR,
   borderColor: HIST_SURFACE, borderWidth: 1, borderRadius: 3, borderSkipped: "start",
   barPercentage: 1, categoryPercentage: 0.92,
 });
@@ -157,8 +178,8 @@ const medianPlugin = {
   },
 };
 
-function barChart(view, labels, on, off, min, tooltip, xTitle) {
-  const data = { labels, datasets: [barDataset(`medido ≥ ${min}`, on, HIST_ON), barDataset(`medido < ${min}`, off, HIST_OFF)] };
+function barChart(view, labels, counts, tooltip, xTitle) {
+  const data = { labels, datasets: [barDataset(counts)] };
   if (view.chart) {
     view.chart.data = data;
     view.chart.options.plugins.tooltip.callbacks = tooltip;
@@ -172,61 +193,49 @@ function barChart(view, labels, on, off, min, tooltip, xTitle) {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { color: HIST_MUTED, maxRotation: 0, autoSkipPadding: 6 },
+        x: { grid: { display: false }, ticks: { color: HIST_MUTED, maxRotation: 0, autoSkipPadding: 6 },
              title: { display: true, text: xTitle, color: HIST_MUTED } },
-        y: { stacked: true, beginAtZero: true, grid: { color: HIST_GRID }, ticks: { color: HIST_MUTED, precision: 0 },
-             title: { display: true, text: "horas", color: HIST_MUTED } },
+        y: { beginAtZero: true, grid: { color: HIST_GRID }, ticks: { color: HIST_MUTED, precision: 0 },
+             title: { display: true, text: "sequências", color: HIST_MUTED } },
       },
       plugins: { legend: { display: false }, tooltip: { callbacks: tooltip } },
     },
   });
 }
 
-function renderSpeed(view, rows, min) {
+function renderSpeed(view, runs) {
   const key = view.key;
-  const vals = rows.map((r) => r[key]).filter((v) => v != null).sort((a, b) => a - b);
-  if (!vals.length) { view.chart && (view.chart.$median = null); barChart(view, [], [], [], min, {}, "nós"); return; }
+  const vals = runs.map((run) => runValue(run, key)).filter((v) => v != null).sort((a, b) => a - b);
+  if (!vals.length) { view.chart && (view.chart.$median = null); barChart(view, [], [], {}, "nós"); return; }
   const b0 = Math.floor(vals[0]), n = Math.floor(vals[vals.length - 1]) - b0 + 1;
-  const on = new Array(n).fill(0), off = new Array(n).fill(0);
-  for (const r of rows) {
-    if (r[key] == null) continue;
-    (r.mw >= min ? on : off)[Math.floor(r[key]) - b0] += 1;
-  }
+  const counts = new Array(n).fill(0);
+  for (const v of vals) counts[Math.floor(v) - b0] += 1;
   const atLeast = (x) => vals.length - posOf({ values: vals }, x); // values sorted ascending
   const median = quantile(vals, 0.5);
-  const name = colName(key).toLowerCase();
-  barChart(view, on.map((_, i) => String(b0 + i)), on, off, min, {
+  barChart(view, counts.map((_, i) => String(b0 + i)), counts, {
     title: (items) => (items.length ? `${b0 + items[0].dataIndex}–${b0 + items[0].dataIndex + 1} nós` : ""),
-    label: (it) => `${it.dataset.label}: ${it.raw} h`,
-    footer: (items) => {
-      if (!items.length) return "";
-      const i = items[0].dataIndex, tot = on[i] + off[i];
-      return [`${tot} h (${pct(tot, vals.length)}% das horas)`, `${pct(atLeast(b0 + i), vals.length)}% das horas com ${name} ≥ ${b0 + i}`];
-    },
-  }, `${colName(key)} (nós)`);
+    label: (it) => `${seqWord(it.raw)} (${pct(it.raw, vals.length)}%)`,
+    footer: (items) => (items.length
+      ? `${pct(atLeast(b0 + items[0].dataIndex), vals.length)}% das sequências com mediana ≥ ${b0 + items[0].dataIndex}` : ""),
+  }, `${colName(key)}, mediana da sequência (nós)`);
   view.chart.$median = { value: median, b0 };
   view.chart.update("none");
   view.title.innerHTML = `${colName(key)}<span class="stat">mediana ${f1(median)} · metade entre ${f1(quantile(vals, 0.25))} e ${f1(quantile(vals, 0.75))} nós</span>`;
-  view.note.textContent = `Faixas de 1 nó. Cor: o vento médio medido naquela hora.`;
+  view.note.textContent = "Faixas de 1 nó. Cada sequência conta uma vez, pela mediana dessa coluna nas horas dela.";
 }
 
-function renderHours(view, rows, min) {
-  const on = new Array(24).fill(0), off = new Array(24).fill(0);
-  for (const r of rows) (r.mw >= min ? on : off)[r.hour] += 1;
-  barChart(view, on.map((_, h) => `${pad2(h)}h`), on, off, min, {
+function renderHours(view, runs) {
+  const counts = new Array(24).fill(0);
+  for (const run of runs) counts[runValue(run, "hour")] += 1;
+  barChart(view, counts.map((_, h) => `${pad2(h)}h`), counts, {
     title: (items) => (items.length ? `${pad2(items[0].dataIndex)}h` : ""),
-    label: (it) => `${it.dataset.label}: ${it.raw} h`,
-    footer: (items) => {
-      if (!items.length) return "";
-      const i = items[0].dataIndex, tot = on[i] + off[i];
-      return tot ? `${tot} h · medido ≥ ${min} em ${pct(on[i], tot)}%` : "";
-    },
-  }, "hora do dia");
+    label: (it) => `${seqWord(it.raw)} (${pct(it.raw, runs.length)}%)`,
+  }, "hora do meio da sequência");
   view.chart.$median = null;
   view.chart.update("none");
-  const best = on.reduce((b, v, h) => (v + off[h] >= 3 && on[h] / (on[h] + off[h]) > (b.r ?? -1) ? { h, r: on[h] / (on[h] + off[h]) } : b), {});
-  view.title.innerHTML = `Hora do dia${best.h != null ? `<span class="stat">mais ≥ ${min} às ${pad2(best.h)}h (${Math.round(best.r * 100)}%)</span>` : ""}`;
-  view.note.textContent = "Quantas das horas filtradas caem em cada hora do dia.";
+  const best = counts.reduce((b, v, h) => (v > counts[b] ? h : b), 0);
+  view.title.innerHTML = `Hora do dia${runs.length ? `<span class="stat">mais sequências às ${pad2(best)}h (${pct(counts[best], runs.length)}%)</span>` : ""}`;
+  view.note.textContent = "Em que hora do dia fica o meio de cada sequência.";
 }
 
 // ---- Custom canvases (rose, calendar) ----
@@ -249,16 +258,17 @@ function niceStep(x) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
 }
 
-// Wind rose: sector area = share of the hours from that direction (radius
-// on a square-root scale, so one dominant sector doesn't flatten the
-// rest), split into measured >= min (inner) and below (outer).
-function renderRose(view, rows, min) {
+// Wind rose: sector area = share of the sequences whose median direction
+// falls in it (radius on a square-root scale, so one dominant sector
+// doesn't flatten the rest).
+function renderRose(view, runs) {
   const key = view.key;
-  const on = new Array(16).fill(0), off = new Array(16).fill(0);
+  const counts = new Array(16).fill(0);
   let total = 0;
-  for (const r of rows) {
-    if (r[key] == null) continue;
-    (r.mw >= min ? on : off)[compassIndex(r[key])] += 1;
+  for (const run of runs) {
+    const d = runValue(run, key);
+    if (d == null) continue;
+    counts[compassIndex(d)] += 1;
     total += 1;
   }
   const who = key === "fdir" ? "previsto" : "medido";
@@ -268,7 +278,7 @@ function renderRose(view, rows, min) {
     const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 30;
     geo = { cx, cy, R };
     if (!total) return;
-    const maxPct = Math.max(...on.map((v, i) => v + off[i])) / total * 100;
+    const maxPct = Math.max(...counts) / total * 100;
     const step = niceStep(maxPct / 4), top = Math.ceil(maxPct / step) * step;
     const radius = (p) => R * Math.sqrt(p / top);
     const rad = (deg) => (deg - 90) * RAD;
@@ -281,23 +291,19 @@ function renderRose(view, rows, min) {
     for (let p = step; p <= top + 1e-9; p += step) {
       ctx.beginPath(); ctx.arc(cx, cy, radius(p), 0, 2 * Math.PI); ctx.stroke();
     }
-    const wedge = (i, r0, r1, color) => {
-      if (r1 <= r0) return;
+    for (let i = 0; i < 16; i++) {
+      const r1 = radius((counts[i] / total) * 100);
+      if (r1 <= 0) continue;
       const a0 = rad(i * 22.5 - 10.5), a1 = rad(i * 22.5 + 10.5);
       ctx.beginPath();
+      ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, r1, a0, a1);
-      ctx.arc(cx, cy, r0, a1, a0, true);
       ctx.closePath();
-      ctx.fillStyle = color;
+      ctx.fillStyle = HIST_COLOR;
       ctx.fill();
       ctx.strokeStyle = HIST_SURFACE;
       ctx.lineWidth = 1.5;
       ctx.stroke();
-    };
-    for (let i = 0; i < 16; i++) {
-      const rOn = radius((on[i] / total) * 100), rAll = radius(((on[i] + off[i]) / total) * 100);
-      wedge(i, 0, rOn, HIST_ON);
-      wedge(i, rOn, rAll, HIST_OFF);
     }
     // Ring labels just inside each ring, beside the north spoke.
     ctx.fillStyle = HIST_MUTED;
@@ -319,26 +325,25 @@ function renderRose(view, rows, min) {
     const dx = x - geo.cx, dy = y - geo.cy, dist = Math.hypot(dx, dy);
     if (dist > geo.R + 24 || dist < 4) return null;
     const i = Math.round(((Math.atan2(dx, -dy) / RAD + 360) % 360) / 22.5) % 16;
-    const tot = on[i] + off[i];
-    return `<b>Vento ${who} de ${COMPASS[i]}</b> (${i * 22.5}°)<br>${tot} h · ${pct(tot, total)}% das horas` +
-      (tot ? `<br>medido ≥ ${min}: ${on[i]} h (${pct(on[i], tot)}%)` : "");
+    return `<b>Vento ${who} de ${COMPASS[i]}</b> (${i * 22.5}°)<br>${seqWord(counts[i])} · ${pct(counts[i], total)}%`;
   };
   view.draw();
-  const best = on.reduce((b, v, i) => (v > on[b] ? i : b), 0);
-  view.title.innerHTML = `${colName(key)}${total ? `<span class="stat">de onde vem · mais ≥ ${min} de ${COMPASS[best]}</span>` : ""}`;
-  view.note.textContent = `Área de cada fatia: parte das horas com vento ${who} daquele setor (16 setores).`;
+  const best = counts.reduce((b, v, i) => (v > counts[b] ? i : b), 0);
+  view.title.innerHTML = `${colName(key)}${total ? `<span class="stat">de onde vem · mais de ${COMPASS[best]} (${pct(counts[best], total)}%)</span>` : ""}`;
+  view.note.textContent = `Área de cada fatia: parte das sequências cuja direção ${key === "fdir" ? "prevista" : "medida"} mediana cai naquele setor (16 setores).`;
 }
 
-// Calendar: one cell per day (weeks across, Monday on top); color = some
-// filtered hour of that day measured >= min, strength = how many hours.
-function renderCalendar(view, rows, min) {
+// Calendar: one cell per day (weeks across, Monday on top); strength = how
+// many sequences have their middle on that day.
+function renderCalendar(view, runs) {
   const byDay = new Map();
-  for (const r of rows) {
-    const d = byDay.get(r.day) || { n: 0, on: 0, max: 0 };
+  for (const run of runs) {
+    const dn = runValue(run, "day");
+    const d = byDay.get(dn) || { n: 0, hours: 0, max: 0 };
     d.n += 1;
-    if (r.mw >= min) d.on += 1;
-    d.max = Math.max(d.max, r.mw);
-    byDay.set(r.day, d);
+    d.hours += run.length;
+    for (const r of run) d.max = Math.max(d.max, r.mw);
+    byDay.set(dn, d);
   }
   const first = colByKey.day.min, last = colByKey.day.max;
   const row = (dn) => (new Date(dn * 864e5).getUTCDay() + 6) % 7; // Monday = 0
@@ -368,7 +373,7 @@ function renderCalendar(view, rows, min) {
       }
       const d = byDay.get(dn);
       ctx.globalAlpha = d ? 0.35 + 0.65 * (d.n / maxN) : 1;
-      ctx.fillStyle = d ? (d.on ? HIST_ON : HIST_OFF) : "rgba(255,255,255,0.05)";
+      ctx.fillStyle = d ? HIST_COLOR : "rgba(255,255,255,0.05)";
       ctx.beginPath();
       ctx.roundRect(x, y, cell - gap, cell - gap, Math.min(3, cell / 5));
       ctx.fill();
@@ -383,13 +388,12 @@ function renderCalendar(view, rows, min) {
     if (dn < first || dn > last) return null;
     const d = byDay.get(dn), date = new Date(dn * 864e5);
     const label = `<b>${WEEKDAYS[date.getUTCDay()]} ${dayLabel(dn)}</b>`;
-    return d ? `${label}<br>${d.n} h nos filtros · ${d.on} com medido ≥ ${min}<br>maior médio medido: ${f1(d.max)} nós`
-      : `${label}<br>nenhuma hora nos filtros`;
+    return d ? `${label}<br>${seqWord(d.n)} · ${d.hours} h<br>maior médio medido: ${f1(d.max)} nós`
+      : `${label}<br>nenhuma sequência`;
   };
   view.draw();
-  const good = [...byDay.values()].filter((d) => d.on).length;
-  view.title.innerHTML = `Dia<span class="stat">${byDay.size} dias com horas nos filtros · ${good} com medido ≥ ${min}</span>`;
-  view.note.textContent = "Cor: algum horário do dia medido ≥ mínimo (azul) ou não (laranja); intensidade: quantas horas passam nos filtros.";
+  view.title.innerHTML = `Dia<span class="stat">${byDay.size} dias com sequências</span>`;
+  view.note.textContent = "Intensidade: quantas sequências têm o meio naquele dia.";
 }
 
 function setTab(tab) {
@@ -405,4 +409,4 @@ function setTab(tab) {
 }
 
 document.querySelectorAll(".tbl-tabs [data-tab]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
-document.getElementById("histAdd").addEventListener("click", () => { addView(); renderHists(tbl.filtered); });
+document.getElementById("histAdd").addEventListener("click", () => { addView(); renderHists(tbl.runs); });

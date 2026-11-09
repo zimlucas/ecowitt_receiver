@@ -23,7 +23,7 @@ const TBL_COLS = [
   { key: "mg", label: "Rajada", kind: "kn", fine: [10, 25] },
 ];
 for (const c of TBL_COLS) if (c.kind === "dir") Object.assign(c, { min: 0, max: 360, step: 5 });
-const tbl = { rows: null, filtered: [], limit: TBL_PAGE, sort: { key: "ts", desc: true }, built: false, timer: null, filters: {}, tab: "table" };
+const tbl = { rows: null, filtered: [], runs: [], limit: TBL_PAGE, sort: { key: "ts", desc: true }, built: false, timer: null, filters: {}, tab: "table" };
 
 const dayLabel = (dn) => { const d = new Date(dn * 864e5); return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)}/${String(d.getUTCFullYear()).slice(2)}`; };
 const WEEKDAYS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -51,7 +51,7 @@ function tblBuildRows() {
     byHour.get(h).push(p);
   }
   const rows = [];
-  for (const f of fc.hours) {
+  for (const f of forecastHours()) {
     const m = byHour.get(f.ts);
     if (!m || f.ts > nowSec()) continue;
     const d = new Date(f.ts * 1000);
@@ -261,16 +261,18 @@ const dirCell = (v) => v == null ? `<td class="sep na">—</td>`
 const knCell = (v) => v == null ? `<td class="kn na">—</td>`
   : `<td class="kn" style="background:rgba(74,168,255,${Math.min(0.5, v / 60).toFixed(3)})">${v.toFixed(1)}</td>`;
 
-// Rows (in time order) that sit in runs of at least `n` consecutive hours.
-// Each kept row gets its run number, so the table can shade runs alternately.
+// Rows (in time order) that sit in runs of at least `n` consecutive hours,
+// and the runs themselves (each an array of rows in time order). Each kept
+// row gets its run number, so the table can shade runs alternately.
 function keepRuns(rows, n) {
-  const out = [];
-  let runs = 0, start = 0;
+  const out = [], runs = [];
+  let start = 0;
   for (let i = 1; i <= rows.length; i++) {
     if (i < rows.length && rows[i].ts - rows[i - 1].ts === 3600) continue;
     if (i - start >= n) {
-      runs += 1;
-      for (let j = start; j < i; j++) { rows[j].run = runs; out.push(rows[j]); }
+      const run = rows.slice(start, i);
+      runs.push(run);
+      for (const r of run) { r.run = runs.length; out.push(r); }
     }
     start = i;
   }
@@ -291,12 +293,13 @@ function renderTable() {
     return desc ? y - x : x - y;
   });
   tbl.filtered = rows;
-  renderTableSummary(rows, minRun > 1 ? runs : null);
+  tbl.runs = runs;
+  renderTableSummary(rows, runs.length);
 
   const more = document.getElementById("tblMore");
   if (tbl.tab === "hist") {
     more.hidden = true;
-    renderHists(rows);
+    renderHists(runs);
     return;
   }
   const html = [];
@@ -313,21 +316,15 @@ function renderTable() {
 function renderTableSummary(rows, runs) {
   const el = document.getElementById("tblSummary");
   if (!rows.length) { el.innerHTML = "<span>Nenhuma hora com esses filtros.</span>"; return; }
-  const min = Number(document.getElementById("climMin").value);
   const mw = rows.map((r) => r.mw).sort((a, b) => a - b);
   const mg = rows.map((r) => r.mg).filter((v) => v != null).sort((a, b) => a - b);
-  const days = new Map();
-  for (const r of rows) days.set(r.day, (days.get(r.day) || false) || r.mw >= min);
-  const goodDays = [...days.values()].filter(Boolean).length;
-  const strong = rows.filter((r) => r.mw >= min).length;
+  const days = new Set(rows.map((r) => r.day)).size;
   const f1 = (v) => v.toFixed(1).replace(".", ",");
   el.innerHTML = [
-    `<b>${rows.length.toLocaleString("pt-BR")}</b> horas em <b>${days.size}</b> dias` +
-      (runs != null ? ` (${runs} sequência${runs === 1 ? "" : "s"})` : ""),
+    `<b>${rows.length.toLocaleString("pt-BR")}</b> horas em <b>${days}</b> dias, ` +
+      `<b>${runs.toLocaleString("pt-BR")}</b> sequência${runs === 1 ? "" : "s"}`,
     `medido médio: mediana <b>${f1(quantile(mw, 0.5))}</b> (metade entre ${f1(quantile(mw, 0.25))} e ${f1(quantile(mw, 0.75))})`,
     mg.length ? `rajada medida: mediana <b>${f1(quantile(mg, 0.5))}</b>` : "",
-    `médio ≥ ${min} nós em <b>${Math.round((100 * strong) / rows.length)}%</b> das horas`,
-    `dias com alguma dessas horas ≥ ${min}: <b>${goodDays}</b> de ${days.size}`,
   ].filter(Boolean).map((s) => `<span>${s}</span>`).join("");
 }
 
@@ -349,7 +346,7 @@ function scheduleTable() {
     renderTable();
     const starts = chunkStarts("30min", sinceSec, nowSec());
     const loaded = starts.filter((s) => chunks["30min"].has(s)).length;
-    const busy = loaded < starts.length || !fc.full;
+    const busy = loaded < starts.length || !FC_SERIES[fc.sel].full;
     document.getElementById("tblBusy").hidden = !busy;
     document.getElementById("tblBusyText").textContent = loaded < starts.length
       ? `carregando histórico ${loaded}/${starts.length} semanas…` : "carregando previsão…";

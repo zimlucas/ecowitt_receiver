@@ -211,6 +211,31 @@
     .hist-add { display: flex; justify-content: center; margin-top: 12px; }
     .tbl-more { display: flex; justify-content: center; margin-top: 10px; }
     .tbl-more[hidden], .tbl-more .btn[hidden] { display: none; }
+
+    /* Touch screens: say "pinch" instead of "mouse wheel". */
+    .touch-only { display: none; }
+    @media (hover: none) and (pointer: coarse) {
+      .mouse-only { display: none; }
+      .touch-only { display: inline; }
+    }
+    /* Small screens: chart cards run edge to edge (no frame around the plot),
+       charts sized so measured and forecast fit on one screen together. */
+    @media (max-width: 640px) {
+      body { padding: 14px 10px; }
+      h2 { margin: 20px 0 8px; }
+      .grid { gap: 8px; margin: 12px 0; }
+      .card { padding: 10px 12px; }
+      .value { font-size: 1.4rem; }
+      .chart-card { margin-left: -10px; margin-right: -10px; border-radius: 0; border-left: 0; border-right: 0; padding: 12px 10px; }
+      .chart-wrap { height: 300px; height: clamp(230px, calc(50svh - 80px), 360px); margin-left: -6px; margin-right: -4px; }
+      .chart-title { margin-top: 10px; }
+      .legend { gap: 6px 14px; font-size: 0.76rem; }
+      .clim-grid { grid-template-columns: 1fr; gap: 10px; }
+      .clim-panel { padding: 10px; }
+      .clim-panel .chart-wrap { height: 300px; margin: 8px 0 0; }
+      .clim-slider input { width: 130px; }
+      .hist-view { padding: 10px; }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" defer></script>
@@ -257,7 +282,12 @@
       </div>
       <div class="chart-title">
         <h3>Previsão ECMWF IFS 9 km</h3>
-        <span class="hint" style="margin:0">rodada mais recente para cada hora · vento a 10 m<span id="fcWhere"></span> · Open-Meteo<span id="fcWindyWrap" hidden> · <a id="fcWindy" target="_blank" rel="noopener" title="Previsão do Windy neste ponto de grade">Windy</a></span></span>
+        <div class="btnrow" role="group" aria-label="Rodada da previsão">
+          <button class="btn sm" data-fc="latest" title="Para cada hora, a rodada mais recente que a cobriu">Mais recente</button>
+          <button class="btn sm" data-fc="d1" title="Para cada hora, o que a previsão dizia 24 h antes">24 h antes</button>
+          <button class="btn sm" data-fc="d3" title="Para cada hora, o que a previsão dizia 72 h antes">72 h antes</button>
+        </div>
+        <span class="hint" style="margin:0"><span id="fcRunHint">rodada mais recente para cada hora</span> · vento a 10 m<span id="fcWhere"></span> · Open-Meteo<span id="fcWindyWrap" hidden> · <a id="fcWindy" target="_blank" rel="noopener" title="Previsão do Windy neste ponto de grade">Windy</a></span></span>
         <span class="busy" id="fcBusy" role="status" hidden><span class="spinner"></span><span id="fcBusyText">carregando previsão…</span></span>
       </div>
       <div class="chart-wrap">
@@ -272,7 +302,7 @@
         </span>
         <span style="margin-left:auto; display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap">
           <span class="busy" id="chartBusy" role="status" hidden><span class="spinner"></span>carregando…</span>
-          <span class="hint" style="margin:0"><span id="chartHint">Arraste para ver o histórico</span> · role o mouse para <span id="zoomWord">zoom</span></span>
+          <span class="hint" style="margin:0"><span id="chartHint">Arraste para ver o histórico</span> · <span class="mouse-only">role o mouse para</span><span class="touch-only">pince para dar</span> <span id="zoomWord">zoom</span></span>
         </span>
       </div>
     </section>
@@ -342,7 +372,7 @@
       <div class="tbl-wrap">
         <table class="htbl" id="histTable">
           <thead>
-            <tr class="grp"><th colspan="2"></th><th colspan="3" class="sep">Previsão ECMWF</th><th colspan="3" class="sep">Medido</th></tr>
+            <tr class="grp"><th colspan="2"></th><th colspan="3" class="sep" id="tblFcHead">Previsão ECMWF</th><th colspan="3" class="sep">Medido</th></tr>
             <tr class="cols"></tr>
             <tr class="filters"></tr>
           </thead>
@@ -352,21 +382,20 @@
       <div class="tbl-more"><button class="btn sm" id="tblMore" hidden>Mostrar mais</button></div>
       <div id="histPanel" class="hist-panel" hidden>
         <div class="legend hist-legend">
-          <span class="k"><span class="swatch sq" style="background:#3987e5"></span> medido ≥ <span data-min>15</span> nós</span>
-          <span class="k"><span class="swatch sq" style="background:#d95926"></span> medido &lt; <span data-min>15</span> nós</span>
-          <span class="hint" style="margin:0">cada hora que passa nos filtros, pelo vento médio medido (mínimo das estatísticas)</span>
+          <span class="hint" style="margin:0">Conta sequências (horas seguidas que passam nos filtros, do tamanho mínimo
+            escolhido): cada uma entra uma vez, pela mediana da grandeza nas horas dela.</span>
         </div>
         <div id="histViews"></div>
         <div class="hist-add"><button class="btn" id="histAdd" title="Adicionar visualização">＋ Adicionar visualização</button></div>
       </div>
       <div class="hint">
-        Uma linha por hora (nós). Previsão: o mesmo ponto do gráfico, rodada mais recente; a rajada é a máxima da
-        hora anterior. Medido: as leituras de 30 min de hh:30 da hora anterior e hh:00 (média, rajada máxima e direção
+        Uma linha por hora (nós). Previsão: o mesmo ponto e a mesma rodada escolhida no gráfico (mais recente, 24 h
+        ou 72 h antes; estas duas sem rajada); a rajada é a máxima da hora anterior. Medido: as leituras de 30 min de hh:30 da hora anterior e hh:00 (média, rajada máxima e direção
         média). Ajuste os controles de cada coluna para filtrar; a caixinha ao lado da faixa desliga e religa o filtro
         sem perder a posição. Na direção, mínimo à direita do máximo dá a volta pelo
         norte (ex.: 330°–30°). A sequência mínima deixa só as horas que, junto com as vizinhas, passam nos filtros
         por pelo menos esse número de horas seguidas; o fundo do dia e da hora alterna a cada sequência. Clique no nome
-        da coluna para ordenar. O resumo usa o vento mínimo das estatísticas acima.
+        da coluna para ordenar.
       </div>
     </section>
 

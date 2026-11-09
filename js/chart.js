@@ -75,8 +75,8 @@ function rebuildData() {
 // whole steps while panning. Measured and forecast share the same axis so
 // they can be compared at a glance.
 // Hidden toggle: clicking the word "zoom" in the hint switches that mode,
-// which also draws a line at 15 knots. Remembered in this browser.
-const REF_KNOTS = 15;
+// which also draws a line at 18 knots. Remembered in this browser.
+const REF_KNOTS = 18;
 let refMode = localStorage.getItem("windRefLine") === "1";
 
 function updateYAxis(fromMs, toMs) {
@@ -115,13 +115,37 @@ function toggleRefMode() {
   if (windChart) rebuildData();
 }
 
-// Pan/zoom bounds: from the first day of history up to now.
+// Pan/zoom bounds: from the first day of history up to the end of the
+// forecast shown ahead.
 function updateLimits() {
   const minMs = (sinceSec ?? nowSec() - 400 * DAY) * 1000;
   for (const chart of [windChart, fcChart]) {
-    chart.options.plugins.zoom.limits = { x: { min: minMs, max: nowSec() * 1000, minRange: HOUR_MS } };
+    chart.options.plugins.zoom.limits = { x: { min: minMs, max: (nowSec() + AHEAD_SEC) * 1000, minRange: HOUR_MS } };
   }
 }
+
+// A thin "agora" line on both charts, where the measurement ends and only
+// the forecast goes on.
+const nowLinePlugin = {
+  id: "nowLine",
+  afterDatasetsDraw(chart) {
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    const ms = nowSec() * 1000;
+    if (ms < x.min || ms > x.max) return;
+    const px = Math.round(x.getPixelForValue(ms)) + 0.5;
+    ctx.save();
+    ctx.strokeStyle = "rgba(232,238,249,0.45)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(232,238,249,0.7)";
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textAlign = px > a.right - 40 ? "right" : "left";
+    ctx.fillText("agora", px + (ctx.textAlign === "left" ? 4 : -4), a.top + 11);
+    ctx.restore();
+  },
+};
 
 function setWindow(fromSec, toSec) {
   for (const chart of [windChart, fcChart]) {
@@ -542,7 +566,7 @@ function highlightButton(viewKey) {
 function makeWindChart(canvasId, sky, details) {
   const chart = new Chart(document.getElementById(canvasId), {
     type: "scatter",
-    plugins: [nightPlugin, refLinePlugin, windArrowsPlugin, skyPlugin],
+    plugins: [nightPlugin, refLinePlugin, nowLinePlugin, windArrowsPlugin, skyPlugin],
     data: {
       datasets: [
         { label: "Vento", data: [], showLine: true, borderColor: "#4aa8ff",
@@ -593,8 +617,27 @@ function makeWindChart(canvasId, sky, details) {
   });
   chart.$sky = sky;
   chart.$arrows = [];
+  // The zoom plugin's touch handler claims every gesture on the canvas
+  // (touch-action: none), so on a phone the page couldn't be scrolled over
+  // the charts. Leave vertical swipes to the page; horizontal ones and
+  // pinches still pan and zoom the chart.
+  chart.canvas.style.touchAction = "pan-y";
+  fitNarrow(chart);
   return chart;
 }
+
+// Small screens: smaller ticks and no "nós" axis title (the legend says it),
+// so the plot gets the width.
+const narrowMq = window.matchMedia("(max-width: 640px)");
+function fitNarrow(chart) {
+  const n = narrowMq.matches, font = { size: n ? 10 : 12 };
+  chart.options.scales.y.title.display = !n;
+  chart.options.scales.x.ticks.font = font;
+  chart.options.scales.y.ticks.font = font;
+}
+narrowMq.addEventListener("change", () => {
+  for (const chart of [windChart, fcChart]) if (chart) { fitNarrow(chart); chart.update("none"); }
+});
 
 function ensureChart() {
   if (windChart) return windChart;
@@ -626,8 +669,9 @@ function onViewMove({ chart }) {
 async function onViewSettled({ chart }) {
   syncWindow(chart);
   const [from, to] = viewRange();
-  // Dragged back to the present: resume following new data.
-  followNow = nowSec() - to < 2 * LEVELS[currentLevel].res + 60;
+  // Dragged back to the present (the right edge at the end of the forecast
+  // ahead): resume following new data.
+  followNow = nowSec() + AHEAD_SEC - to < 2 * LEVELS[currentLevel].res + 60;
   const desired = levelForSpan(to - from);
   if (desired === currentLevel) {
     loadAround(currentLevel, from, to);
@@ -647,13 +691,13 @@ async function onViewSettled({ chart }) {
   }
 }
 
-// Button handler: show `span` ending now, at the matching level. The button
-// lights up immediately; if another one is clicked before the data arrives,
-// only the latest click is applied.
+// Button handler: show `span` ending now plus the next 24 h of forecast, at
+// the matching level. The button lights up immediately; if another one is
+// clicked before the data arrives, only the latest click is applied.
 async function selectView(viewKey) {
   const seq = ++viewSeq;
   const span = VIEW_SPAN[viewKey];
-  const level = levelForSpan(span);
+  const level = levelForSpan(span + AHEAD_SEC);
   highlightButton(viewKey);
   setLoading(true);
   try {
@@ -664,7 +708,7 @@ async function selectView(viewKey) {
     currentLevel = level;
     followNow = true;
     const end = nowSec(); // the first response may have corrected the clock
-    setWindow(end - span, end);
+    setWindow(end - span, end + AHEAD_SEC);
     rebuildData();
     prefetchFor(level);
   } catch (e) {
@@ -697,8 +741,8 @@ async function advanceChart(tailChanged = false) {
   await requestChunk(level, live, -1);
   if (seq !== viewSeq || level !== currentLevel || !followNow) return;
   const [from, to] = viewRange();
-  const end = nowSec();
+  const end = nowSec() + AHEAD_SEC;
   setWindow(end - (to - from), end);
-  loadAround(level, end - (to - from), end); // e.g. yesterday's chunk turning final
+  loadAround(level, end - (to - from), nowSec()); // e.g. yesterday's chunk turning final
   rebuildData();
 }
