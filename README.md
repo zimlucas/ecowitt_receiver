@@ -56,8 +56,8 @@ recent model run that covered it. Two buttons switch the past hours to what
 the forecast said **24 h** or **72 h** before each hour (Open-Meteo's
 previous-runs API; mean wind, direction and total cloud cover only, no gusts);
 the next 24 h, shown to the right of an "agora" line on both charts, always
-come from the latest run. The choice is remembered in the browser and also
-drives the table below. It uses the nearest **sea** grid point
+come from the latest run. The choice is remembered in the browser; the table
+below has its own, in the header of its forecast columns. It uses the nearest **sea** grid point
 (`cell_selection=sea`, ~5 km offshore): the default land point treats the
 beach as rough terrain (weaker mean wind, stronger gusts) while the station's
 strong wind comes from the sea. The browser fetches it directly (no key, no

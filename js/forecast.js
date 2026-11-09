@@ -4,8 +4,8 @@
 // and run in the order index.html lists them, after the page is parsed.
 
 // ---- Forecast ----
-// ECMWF IFS (9 km HRES) from Open-Meteo, in three series the page can switch
-// between (the chart and the hour-by-hour table follow the choice):
+// ECMWF IFS (9 km HRES) from Open-Meteo, in three series the chart and the
+// hour-by-hour table each switch between (separately):
 //   - latest: the historical-forecast API, for each hour the value from the
 //     most recent model run that covered it, so past hours are short-range
 //     forecasts and the latest ones come from the current run;
@@ -62,8 +62,11 @@ for (const [key, s] of Object.entries(FC_SERIES)) {
 const FC_CACHE_KEY = (s) => `forecast:v1:${FC_MODEL}:${FC_CELL}:${station.lat.toFixed(4)},${station.lon.toFixed(4)}${s.cache}`;
 // Seconds between direction arrows per level (about as dense as the measured ones).
 const FC_ARROW_EVERY = { "5min": 3600, "30min": 3 * 3600, "4hour": 5 * 14400, "1day": 5 * 86400 };
+// The chart's choice (`sel`) and the hour-by-hour table's (`tblSel`) are
+// separate, each remembered in this browser.
+const savedSeries = (k) => (FC_SERIES[localStorage.getItem(k)] ? localStorage.getItem(k) : "latest");
 const fc = {
-  started: false, sel: FC_SERIES[localStorage.getItem("fcSeries")] ? localStorage.getItem("fcSeries") : "latest",
+  started: false, sel: savedSeries("fcSeries"), tblSel: savedSeries("tblFcSeries"),
   hours: [], composedHour: null, shown: new Map(),
 };
 
@@ -155,10 +158,10 @@ function forecastHours() {
 function mergeForecast(s, points) {
   for (const p of points) s.byTs.set(p.ts, p);
   s.hours = [...s.byTs.values()].sort((a, b) => a.ts - b.ts);
+  if (s === FC_SERIES[fc.tblSel]) scheduleTable();
   if (s !== FC_SERIES.latest && s !== FC_SERIES[fc.sel]) return;
   composeForecast();
   if (windChart) rebuildData();
-  scheduleTable();
 }
 
 // The small "carregando…" by the title: about the chosen series, or the
@@ -209,10 +212,11 @@ function startForecast() {
   fc.started = true;
   startSeries(FC_SERIES.latest);
   startSeries(FC_SERIES[fc.sel]);
+  startSeries(FC_SERIES[fc.tblSel]);
 }
 
-// Switch series (remembered in this browser). A previous-runs series is
-// only downloaded the first time it is picked.
+// Switch the chart's series. A previous-runs series is only downloaded the
+// first time it is picked (here or in the table).
 function selectForecast(key) {
   fc.sel = key;
   localStorage.setItem("fcSeries", key);
@@ -221,18 +225,28 @@ function selectForecast(key) {
   composeForecast();
   updateFcBusy();
   if (windChart) rebuildData();
+}
+
+// Switch the table's series: its forecast columns, filters and histograms
+// then compare the measurement with the forecast given that far ahead.
+function selectTableForecast(key) {
+  fc.tblSel = key;
+  localStorage.setItem("tblFcSeries", key);
+  showForecastChoice();
+  if (fc.started) startSeries(FC_SERIES[key]);
+  tbl.limit = TBL_PAGE;
   scheduleTable();
 }
 
 function showForecastChoice() {
-  const s = FC_SERIES[fc.sel];
-  document.querySelectorAll("[data-fc]").forEach((b) => {
-    const on = b.dataset.fc === fc.sel;
+  const mark = (attr, sel) => document.querySelectorAll(`[${attr}]`).forEach((b) => {
+    const on = b.getAttribute(attr) === sel;
     b.classList.toggle("active", on);
     b.setAttribute("aria-pressed", on);
   });
-  document.getElementById("fcRunHint").textContent = s.hint;
-  document.getElementById("tblFcHead").textContent = `Previsão ECMWF${s.label ? ` · ${s.label}` : ""}`;
+  mark("data-fc", fc.sel);
+  mark("data-tblfc", fc.tblSel);
+  document.getElementById("fcRunHint").textContent = FC_SERIES[fc.sel].hint;
 }
 
 // Hourly points into `res`-second bins (UTC-aligned, like the station's).
@@ -339,4 +353,5 @@ const forecastSky = {
 };
 
 document.querySelectorAll("[data-fc]").forEach((b) => b.addEventListener("click", () => selectForecast(b.dataset.fc)));
+document.querySelectorAll("[data-tblfc]").forEach((b) => b.addEventListener("click", () => selectTableForecast(b.dataset.tblfc)));
 showForecastChoice();

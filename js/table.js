@@ -7,7 +7,8 @@
 // One row per forecast hour that has a measurement: the forecast at hh:00
 // next to the station's 30-min readings of hh-1:30 and hh:00 (the hour the
 // forecast gust covers). Built from the same 30-min chunks as the
-// statistics and the forecast already loaded for the chart. Each column has
+// statistics, and from the forecast series picked in the table's header
+// (latest run, or 24 h / 72 h ahead; independent of the chart's). Each column has
 // a min/max range filter; the summary describes the measured wind of the
 // rows left, which answers "when the forecast looked like this, what did
 // the station get?".
@@ -51,7 +52,7 @@ function tblBuildRows() {
     byHour.get(h).push(p);
   }
   const rows = [];
-  for (const f of forecastHours()) {
+  for (const f of FC_SERIES[fc.tblSel].hours) { // the series chosen in the table's header
     const m = byHour.get(f.ts);
     if (!m || f.ts > nowSec()) continue;
     const d = new Date(f.ts * 1000);
@@ -346,7 +347,7 @@ function scheduleTable() {
     renderTable();
     const starts = chunkStarts("30min", sinceSec, nowSec());
     const loaded = starts.filter((s) => chunks["30min"].has(s)).length;
-    const busy = loaded < starts.length || !FC_SERIES[fc.sel].full;
+    const busy = loaded < starts.length || !FC_SERIES[fc.tblSel].full;
     document.getElementById("tblBusy").hidden = !busy;
     document.getElementById("tblBusyText").textContent = loaded < starts.length
       ? `carregando histórico ${loaded}/${starts.length} semanas…` : "carregando previsão…";
